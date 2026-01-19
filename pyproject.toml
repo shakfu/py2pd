@@ -1,6 +1,6 @@
 [project]
 name = "py2pd"
-version = "0.1.0"
+version = "0.1.1"
 description = "Roundtrip parsing and generation of pure-data patches from python"
 readme = "README.md"
 requires-python = ">=3.13"

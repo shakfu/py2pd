@@ -38,57 +38,16 @@ from .api import (
     SUBPATCH_CANVAS_HEIGHT as SUBPATCH_CANVAS_HEIGHT,
 )
 
-# AST API
+# AST API (node types available via: from py2pd.ast import PdPatch, PdObj, ...)
 from .ast import (
-    # AST node types
-    PdPatch as PdPatch,
-    PdObj as PdObj,
-    PdMsg as PdMsg,
-    PdFloatatom as PdFloatatom,
-    PdSymbolatom as PdSymbolatom,
-    PdText as PdText,
-    PdArray as PdArray,
-    PdConnect as PdConnect,
-    PdCoords as PdCoords,
-    PdSubpatch as PdSubpatch,
-    PdRestore as PdRestore,
-    PdBng as PdBng,
-    PdTgl as PdTgl,
-    Position as Position,
-    CanvasProperties as CanvasProperties,
-    # Parser/serializer
     parse as parse,
     parse_file as parse_file,
     serialize as serialize,
     serialize_to_file as serialize_to_file,
     ParseError as ParseError,
-    # Bridge functions
     from_builder as from_builder,
     to_builder as to_builder,
-    # Utilities
-    transform as transform,
-    find_objects as find_objects,
-    rename_sends_receives as rename_sends_receives,
 )
 
+__version__ = "0.1.1"
 
-"""
-    :""'""'""'""'"";
-    *              *
-    *    python    *
-    *              *
-    :######=.......;
-      %%
-    :#######""'""'""'""'"'"#######;
-    *                             *                      
-    *                             *
-    *   p>>>o.      :d            *
-    *   p    o      :d            *
-    *   p<<<o.  .d<<<d            *
-    *   p,      d    d            *
-    *   o.      'd>>>d            *
-    *                             *
-    *                             *
-    :######=......................;
-
-"""

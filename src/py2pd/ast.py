@@ -84,7 +84,7 @@ class PdMsg:
 
 
 @dataclass(frozen=True)
-class PdFloatatom:
+class PdFloatAtom:
     """A PureData number box (#X floatatom)."""
 
     position: Position
@@ -105,7 +105,7 @@ class PdFloatatom:
 
 
 @dataclass(frozen=True)
-class PdSymbolatom:
+class PdSymbolAtom:
     """A PureData symbol box (#X symbolatom)."""
 
     position: Position
@@ -260,8 +260,8 @@ class PdTgl:
 PdElement = Union[
     PdObj,
     PdMsg,
-    PdFloatatom,
-    PdSymbolatom,
+    PdFloatAtom,
+    PdSymbolAtom,
     PdText,
     PdArray,
     PdConnect,
@@ -304,13 +304,13 @@ class PdPatch:
 
     def get_objects(
         self,
-    ) -> List[Union[PdObj, PdMsg, PdFloatatom, PdSymbolatom, PdBng, PdTgl, PdSubpatch]]:
+    ) -> List[Union[PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl, PdSubpatch]]:
         """Get all connectable objects (not connections, arrays, or coords)."""
         return [
             e
             for e in self.elements
             if isinstance(
-                e, (PdObj, PdMsg, PdFloatatom, PdSymbolatom, PdBng, PdTgl, PdSubpatch)
+                e, (PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl, PdSubpatch)
             )
         ]
 
@@ -460,7 +460,7 @@ def _parse_msg(tokens: List[str]) -> PdMsg:
     return PdMsg(pos, content)
 
 
-def _parse_floatatom(tokens: List[str]) -> PdFloatatom:
+def _parse_floatatom(tokens: List[str]) -> PdFloatAtom:
     """Parse #X floatatom line."""
     # #X floatatom x y width lower upper label_pos label receive send
     if len(tokens) < 4:
@@ -475,10 +475,10 @@ def _parse_floatatom(tokens: List[str]) -> PdFloatatom:
     receive = tokens[9] if len(tokens) > 9 else "-"
     send = tokens[10] if len(tokens) > 10 else "-"
 
-    return PdFloatatom(pos, width, lower, upper, label_pos, label, receive, send)
+    return PdFloatAtom(pos, width, lower, upper, label_pos, label, receive, send)
 
 
-def _parse_symbolatom(tokens: List[str]) -> PdSymbolatom:
+def _parse_symbolatom(tokens: List[str]) -> PdSymbolAtom:
     """Parse #X symbolatom line."""
     if len(tokens) < 4:
         raise ParseError(f"Invalid symbolatom line: {tokens}")
@@ -492,7 +492,7 @@ def _parse_symbolatom(tokens: List[str]) -> PdSymbolatom:
     receive = tokens[9] if len(tokens) > 9 else "-"
     send = tokens[10] if len(tokens) > 10 else "-"
 
-    return PdSymbolatom(pos, width, lower, upper, label_pos, label, receive, send)
+    return PdSymbolAtom(pos, width, lower, upper, label_pos, label, receive, send)
 
 
 def _parse_text(tokens: List[str]) -> PdText:
@@ -820,7 +820,7 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             p = node.parameters
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
-                PdFloatatom(
+                PdFloatAtom(
                     pos,
                     p["width"],
                     p["lower_limit"],
@@ -892,7 +892,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             )
             node_map.append(node)
 
-        elif isinstance(elem, PdFloatatom):
+        elif isinstance(elem, PdFloatAtom):
             node = api.Float(
                 elem.position.x,
                 elem.position.y,
@@ -906,7 +906,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             patch.nodes.append(node)
             node_map.append(node)
 
-        elif isinstance(elem, PdSymbolatom):
+        elif isinstance(elem, PdSymbolAtom):
             # Treat as a generic object for now
             node = patch.add("symbolatom", x_pos=elem.position.x, y_pos=elem.position.y)
             node_map.append(node)
@@ -1039,8 +1039,8 @@ def rename_sends_receives(patch: PdPatch, old_name: str, new_name: str) -> PdPat
     """
 
     def rename(elem):
-        if isinstance(elem, PdFloatatom):
-            return PdFloatatom(
+        if isinstance(elem, PdFloatAtom):
+            return PdFloatAtom(
                 elem.position,
                 elem.width,
                 elem.lower_limit,

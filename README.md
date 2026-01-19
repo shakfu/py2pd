@@ -131,7 +131,7 @@ p.validate_connections(check_cycles=True)  # Raises on invalid connections
 
 ## AST API (Round-trip Parsing)
 
-For modifying existing patches:
+For modifying existing patches with immutable AST nodes:
 
 ```python
 from py2pd import parse_file, serialize
@@ -144,6 +144,41 @@ ast = parse_file('input.pd')
 # Write back
 with open('output.pd', 'w') as f:
     f.write(serialize(ast))
+```
+
+### Converting Between APIs
+
+You can convert between AST and Builder representations:
+
+```python
+from py2pd import parse_file, to_builder, from_builder
+
+# AST -> Builder: parse then edit with the more convenient API
+ast = parse_file('input.pd')
+patch = to_builder(ast)
+patch.add('osc~ 880')
+patch.save('output.pd')
+
+# Builder -> AST: for analysis or transformation
+ast = from_builder(patch)
+```
+
+### When to Use Each API
+
+| Use Case | Recommended API |
+|----------|-----------------|
+| Creating patches from scratch | Builder |
+| Modifying existing patches | Builder (via `to_builder()`) |
+| Lossless round-trip of complex patches | AST |
+| Building analysis/refactoring tools | AST |
+| Batch search/replace across .pd files | AST |
+
+For most workflows, parse to AST then convert to Builder for editing. Use the AST API directly when you need to preserve elements the Builder doesn't model (e.g., `coords`, comments) or need immutable transformations.
+
+AST node types are available from the `py2pd.ast` module:
+
+```python
+from py2pd.ast import PdPatch, PdObj, PdMsg, Position, transform, find_objects
 ```
 
 ## GUI Elements

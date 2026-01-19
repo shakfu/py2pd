@@ -4,21 +4,7 @@ import pytest
 import tempfile
 import os
 from py2pd import (
-    # Builder API
     Patcher,
-    # AST types
-    PdPatch,
-    PdObj,
-    PdMsg,
-    PdFloatatom,
-    PdText,
-    PdArray,
-    PdConnect,
-    PdSubpatch,
-    PdRestore,
-    Position,
-    CanvasProperties,
-    # Functions
     parse,
     parse_file,
     serialize,
@@ -26,6 +12,19 @@ from py2pd import (
     ParseError,
     from_builder,
     to_builder,
+)
+from py2pd.ast import (
+    PdPatch,
+    PdObj,
+    PdMsg,
+    PdFloatAtom,
+    PdText,
+    PdArray,
+    PdConnect,
+    PdSubpatch,
+    PdRestore,
+    Position,
+    CanvasProperties,
     transform,
     find_objects,
     rename_sends_receives,
@@ -102,17 +101,17 @@ class TestPdMsg:
         assert str(msg) == "#X msg 100 200 bang;"
 
 
-class TestPdFloatatom:
-    """Tests for PdFloatatom class."""
+class TestPdFloatAtom:
+    """Tests for PdFloatAtom class."""
 
     def test_floatatom_defaults(self):
-        fa = PdFloatatom(Position(100, 200))
+        fa = PdFloatAtom(Position(100, 200))
         assert fa.width == 5
         assert fa.lower_limit == 0
         assert fa.upper_limit == 0
 
     def test_floatatom_str(self):
-        fa = PdFloatatom(Position(100, 200), 5, 0, 127)
+        fa = PdFloatAtom(Position(100, 200), 5, 0, 127)
         result = str(fa)
         assert "#X floatatom 100 200" in result
 
@@ -215,7 +214,7 @@ class TestParser:
 
         patch = parse(content)
         assert len(patch.elements) == 1
-        assert isinstance(patch.elements[0], PdFloatatom)
+        assert isinstance(patch.elements[0], PdFloatAtom)
 
     def test_parse_array(self):
         content = """#N canvas 0 50 450 300 10;
@@ -536,7 +535,7 @@ class TestRenameSendsReceives:
 
     def test_rename_in_floatatom(self):
         elements = [
-            PdFloatatom(Position(50, 50), send="old_name", receive="old_name"),
+            PdFloatAtom(Position(50, 50), send="old_name", receive="old_name"),
         ]
         patch = PdPatch(CanvasProperties(), elements)
 
@@ -586,7 +585,8 @@ class TestASTExports:
     """Tests for AST exports from package."""
 
     def test_all_types_exportable(self):
-        from py2pd import (
+        # AST types are exported from py2pd.ast
+        from py2pd.ast import (
             PdPatch,
             Position,
         )
@@ -596,6 +596,7 @@ class TestASTExports:
         assert Position is not None
 
     def test_functions_exportable(self):
+        # Core functions are exported from py2pd
         from py2pd import (
             parse,
             from_builder,
