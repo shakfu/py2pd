@@ -16,7 +16,7 @@ Example usage:
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Optional, Union, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:
     from . import api
@@ -309,9 +309,7 @@ class PdPatch:
         return [
             e
             for e in self.elements
-            if isinstance(
-                e, (PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl, PdSubpatch)
-            )
+            if isinstance(e, (PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl, PdSubpatch))
         ]
 
     def get_connections(self) -> List[PdConnect]:
@@ -834,9 +832,7 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
 
         elif isinstance(node, api.Array):
             p = node.parameters
-            elements.append(
-                PdArray(p["name"], p["length"], p["element_type"], p["save_flag"])
-            )
+            elements.append(PdArray(p["name"], p["length"], p["element_type"], p["save_flag"]))
 
         elif isinstance(node, api.Subpatch):
             # Recursively convert subpatch
@@ -849,9 +845,7 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
 
     # Add connections
     for conn in patch.connections:
-        elements.append(
-            PdConnect(conn.source, conn.outlet_index, conn.sink, conn.inlet_index)
-        )
+        elements.append(PdConnect(conn.source, conn.outlet_index, conn.sink, conn.inlet_index))
 
     return PdPatch(canvas, elements)
 
@@ -887,9 +881,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node_map.append(node)
 
         elif isinstance(elem, PdMsg):
-            node = patch.add_msg(
-                elem.content, x_pos=elem.position.x, y_pos=elem.position.y
-            )
+            node = patch.add_msg(elem.content, x_pos=elem.position.x, y_pos=elem.position.y)
             node_map.append(node)
 
         elif isinstance(elem, PdFloatAtom):
@@ -913,9 +905,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
 
         elif isinstance(elem, PdText):
             # Store as comment/generic obj
-            node = patch.add(
-                f"text {elem.content}", x_pos=elem.position.x, y_pos=elem.position.y
-            )
+            node = patch.add(f"text {elem.content}", x_pos=elem.position.x, y_pos=elem.position.y)
             node_map.append(node)
 
         elif isinstance(elem, PdArray):
@@ -949,9 +939,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
     # Second pass: add connections using link()
     for elem in ast.elements:
         if isinstance(elem, PdConnect):
-            source = (
-                node_map[elem.source_id] if elem.source_id < len(node_map) else None
-            )
+            source = node_map[elem.source_id] if elem.source_id < len(node_map) else None
             sink = node_map[elem.sink_id] if elem.sink_id < len(node_map) else None
             if source is not None and sink is not None:
                 patch.link(source, sink, outlet=elem.outlet_id, inlet=elem.inlet_id)
@@ -983,9 +971,7 @@ def transform(patch: PdPatch, transformer) -> PdPatch:
         if isinstance(elem, PdSubpatch):
             # Recursively transform subpatch
             inner = transform(PdPatch(elem.canvas, elem.elements), transformer)
-            transformed = transformer(
-                PdSubpatch(elem.canvas, inner.elements, elem.restore)
-            )
+            transformed = transformer(PdSubpatch(elem.canvas, inner.elements, elem.restore))
         else:
             transformed = transformer(elem)
 
@@ -1063,9 +1049,7 @@ def rename_sends_receives(patch: PdPatch, old_name: str, new_name: str) -> PdPat
                 "r~",
             ):
                 if elem.args and elem.args[0] == old_name:
-                    return PdObj(
-                        elem.position, elem.class_name, (new_name,) + elem.args[1:]
-                    )
+                    return PdObj(elem.position, elem.class_name, (new_name,) + elem.args[1:])
         return elem
 
     return transform(patch, rename)

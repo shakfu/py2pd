@@ -13,13 +13,12 @@ This module demonstrates all major features of py2pd:
 """
 
 from py2pd import (
-    Patcher,
-    GridLayoutManager,
-    NodeNotFoundError,
-    InvalidConnectionError,
     CycleWarning,
+    GridLayoutManager,
+    InvalidConnectionError,
+    NodeNotFoundError,
+    Patcher,
 )
-
 
 # =============================================================================
 # Example 1: Simple Synthesizer
@@ -395,9 +394,8 @@ if __name__ == "__main__":
     print("\n1. Simple Synthesizer")
     patch = simple_synth()
     patch.save()
-    print(
-        f"   Saved: simple_synth.pd ({len(patch.nodes)} nodes, {len(patch.connections)} connections)"
-    )
+    n_nodes, n_conns = len(patch.nodes), len(patch.connections)
+    print(f"   Saved: simple_synth.pd ({n_nodes} nodes, {n_conns} connections)")
 
     # Example 2: GUI elements
     print("\n2. GUI Elements Demo")

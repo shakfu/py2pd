@@ -1,4 +1,4 @@
-.PHONY: test lint format typecheck clean
+.PHONY: test lint format typecheck build check publish publish-test clean
 
 test:
 	@uv run pytest tests/ -v
@@ -12,7 +12,20 @@ format:
 typecheck:
 	@uv run mypy src/
 
+build:
+	@rm -rf dist/
+	@uv build
+
+check:
+	@uvx twine check dist/*
+
+publish-test:
+	@uvx twine upload --repository testpypi dist/*
+
+publish:
+	@uvx twine upload dist/*
+
 clean:
-	@rm -rf __pycache__ .pytest_cache .mypy_cache
+	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/
 	@find . -name "*.pyc" -delete
 	@find . -name "__pycache__" -type d -delete

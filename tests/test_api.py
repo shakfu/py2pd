@@ -1,53 +1,55 @@
 """Tests for py2pd.api module."""
 
-import pytest
 import warnings
+
+import pytest
+
 from py2pd import (
-    Patcher,
-    LayoutManager,
     ConnectionError,
-    NodeNotFoundError,
-    InvalidConnectionError,
     CycleWarning,
+    InvalidConnectionError,
+    LayoutManager,
+    NodeNotFoundError,
+    Patcher,
 )
 from py2pd.api import (
-    escape,
-    unescape,
-    get_display_lines,
-    Node,
-    Obj,
-    Msg,
-    Float,
-    Subpatch,
-    Array,
-    Connection,
-    Bang,
-    Toggle,
-    Symbol,
-    NumberBox,
-    VSlider,
-    HSlider,
-    VRadio,
-    HRadio,
-    Canvas,
-    VU,
-    ROW_HEIGHT,
+    CHAR_WIDTH,
     COLUMN_WIDTH,
     DEFAULT_MARGIN,
-    TEXT_WRAP_WIDTH,
-    CHAR_WIDTH,
-    MIN_ELEMENT_WIDTH,
-    ELEMENT_PADDING,
-    LINE_HEIGHT,
     ELEMENT_BASE_HEIGHT,
-    FLOATATOM_WIDTH,
+    ELEMENT_PADDING,
     FLOATATOM_HEIGHT,
-    SUBPATCH_CANVAS_WIDTH,
-    SUBPATCH_CANVAS_HEIGHT,
+    FLOATATOM_WIDTH,
     IEM_BG_COLOR,
+    IEM_DEFAULT_SIZE,
     IEM_FG_COLOR,
     IEM_LABEL_COLOR,
-    IEM_DEFAULT_SIZE,
+    LINE_HEIGHT,
+    MIN_ELEMENT_WIDTH,
+    ROW_HEIGHT,
+    SUBPATCH_CANVAS_HEIGHT,
+    SUBPATCH_CANVAS_WIDTH,
+    TEXT_WRAP_WIDTH,
+    VU,
+    Array,
+    Bang,
+    Canvas,
+    Connection,
+    Float,
+    HRadio,
+    HSlider,
+    Msg,
+    Node,
+    NumberBox,
+    Obj,
+    Subpatch,
+    Symbol,
+    Toggle,
+    VRadio,
+    VSlider,
+    escape,
+    get_display_lines,
+    unescape,
 )
 
 
@@ -348,7 +350,7 @@ class TestSubpatch:
 
     def test_subpatch_constants_exported(self):
         """Subpatch constants should be exported."""
-        from py2pd import SUBPATCH_CANVAS_WIDTH, SUBPATCH_CANVAS_HEIGHT
+        from py2pd import SUBPATCH_CANVAS_HEIGHT, SUBPATCH_CANVAS_WIDTH
 
         assert SUBPATCH_CANVAS_WIDTH == 300
         assert SUBPATCH_CANVAS_HEIGHT == 180
@@ -359,9 +361,7 @@ class TestSubpatchLayoutInheritance:
 
     def test_inherit_layout_false_by_default(self):
         """By default, inner patch has independent layout settings."""
-        parent = Patcher(
-            layout=LayoutManager(default_margin=100, row_height=50, column_width=80)
-        )
+        parent = Patcher(layout=LayoutManager(default_margin=100, row_height=50, column_width=80))
         inner = Patcher()  # Default settings
 
         parent.add_subpatch("test", inner)
@@ -373,9 +373,7 @@ class TestSubpatchLayoutInheritance:
 
     def test_inherit_layout_true_copies_settings(self):
         """With inherit_layout=True, parent settings are copied."""
-        parent = Patcher(
-            layout=LayoutManager(default_margin=100, row_height=50, column_width=80)
-        )
+        parent = Patcher(layout=LayoutManager(default_margin=100, row_height=50, column_width=80))
         inner = Patcher()
 
         parent.add_subpatch("test", inner, inherit_layout=True)
@@ -1509,7 +1507,7 @@ class TestExceptionTypesNew:
         assert issubclass(CycleWarning, UserWarning)
 
     def test_new_exceptions_exportable(self):
-        from py2pd import InvalidConnectionError, CycleWarning
+        from py2pd import CycleWarning, InvalidConnectionError
 
         assert InvalidConnectionError is not None
         assert CycleWarning is not None
@@ -1631,8 +1629,8 @@ class TestSVGExport:
         assert "</svg>" in svg
 
     def test_save_svg(self):
-        import tempfile
         import os
+        import tempfile
 
         patch = Patcher()
         osc = patch.add("osc~ 440")

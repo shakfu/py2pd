@@ -1,7 +1,6 @@
-from typing import List, Tuple, Union, Sequence, Dict, Optional, Any, Callable, Set
 import re
 import warnings
-
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 # Layout constants (pixels)
 ROW_HEIGHT = 25
@@ -363,7 +362,8 @@ class Subpatch(Node):
         )
 
     def __repr__(self) -> str:
-        return f"Subpatch({self.parameters['x_pos']}, {self.parameters['y_pos']}, {self.parameters['name']!r})"
+        p = self.parameters
+        return f"Subpatch({p['x_pos']}, {p['y_pos']}, {p['name']!r})"
 
     @property
     def size(self) -> Tuple[int, int]:
@@ -373,9 +373,7 @@ class Subpatch(Node):
 
 
 class Array(Node):
-    def __init__(
-        self, name: str, length: int, element_type: str = "float", save_flag: int = 0
-    ):
+    def __init__(self, name: str, length: int, element_type: str = "float", save_flag: int = 0):
         self.hidden = True
         self.parameters = {
             "name": name,
@@ -1240,9 +1238,7 @@ class LayoutManager:
 
         return (x_pos, y_pos)
 
-    def register_node(
-        self, node: Node, new_row: float, new_col: float, was_absolute: bool
-    ) -> None:
+    def register_node(self, node: Node, new_row: float, new_col: float, was_absolute: bool) -> None:
         """Register a node after placement, updating layout state.
 
         Parameters
@@ -1362,9 +1358,7 @@ class GridLayoutManager(LayoutManager):
             self.default_margin + row * self.cell_height,
         )
 
-    def register_node(
-        self, node: Node, new_row: float, new_col: float, was_absolute: bool
-    ) -> None:
+    def register_node(self, node: Node, new_row: float, new_col: float, was_absolute: bool) -> None:
         """Register node and increment counter."""
         super().register_node(node, new_row, new_col, was_absolute)
         if not was_absolute:
@@ -1402,9 +1396,7 @@ class Patcher:
     connections: List[Connection]
     layout: LayoutManager
 
-    def __init__(
-        self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None
-    ):
+    def __init__(self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None):
         """Initialize a new patch.
 
         Parameters
@@ -1442,9 +1434,7 @@ class Patcher:
     ) -> Tuple[int, int, Callable[[Node], None]]:
         """Resolve position for a new element."""
         was_absolute = x_pos >= 0 and y_pos >= 0
-        computed_x, computed_y = self.layout.compute_position(
-            new_row, new_col, x_pos, y_pos
-        )
+        computed_x, computed_y = self.layout.compute_position(new_row, new_col, x_pos, y_pos)
 
         def position_update(node: Node) -> None:
             self.layout.register_node(node, new_row, new_col, was_absolute)
@@ -1500,9 +1490,7 @@ class Patcher:
         >>> dac = p.add('dac~')
         >>> p.link(osc, dac)
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Obj(x_pos, y_pos, text, num_inlets, num_outlets)
         self.nodes.append(node)
         pos_update(node)
@@ -1529,9 +1517,7 @@ class Patcher:
         Msg
             The created message box
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Msg(x_pos, y_pos, text)
         self.nodes.append(node)
         pos_update(node)
@@ -1573,12 +1559,8 @@ class Patcher:
         Float
             The created number box
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
-        node = Float(
-            x_pos, y_pos, width, upper_limit, lower_limit, label, receive, send
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
+        node = Float(x_pos, y_pos, width, upper_limit, lower_limit, label, receive, send)
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -1647,9 +1629,7 @@ class Patcher:
             src.layout.row_height = self.layout.row_height
             src.layout.column_width = self.layout.column_width
 
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Subpatch(
             x_pos,
             y_pos,
@@ -1728,12 +1708,8 @@ class Patcher:
         node : Bang
             The created bang button
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
-        node = Bang(
-            x_pos, y_pos, size=size, init=init, send=send, receive=receive, label=label
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
+        node = Bang(x_pos, y_pos, size=size, init=init, send=send, receive=receive, label=label)
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -1770,9 +1746,7 @@ class Patcher:
         node : Toggle
             The created toggle button
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Toggle(
             x_pos,
             y_pos,
@@ -1811,12 +1785,8 @@ class Patcher:
         node : Symbol
             The created symbol box
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
-        node = Symbol(
-            x_pos, y_pos, width=width, label=label, send=send, receive=receive
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
+        node = Symbol(x_pos, y_pos, width=width, label=label, send=send, receive=receive)
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -1860,9 +1830,7 @@ class Patcher:
         node : NumberBox
             The created number box
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = NumberBox(
             x_pos,
             y_pos,
@@ -1916,9 +1884,7 @@ class Patcher:
         node : VSlider
             The created vertical slider
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = VSlider(
             x_pos,
             y_pos,
@@ -1972,9 +1938,7 @@ class Patcher:
         node : HSlider
             The created horizontal slider
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = HSlider(
             x_pos,
             y_pos,
@@ -2020,9 +1984,7 @@ class Patcher:
         node : VRadio
             The created vertical radio buttons
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = VRadio(
             x_pos,
             y_pos,
@@ -2066,9 +2028,7 @@ class Patcher:
         node : HRadio
             The created horizontal radio buttons
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = HRadio(
             x_pos,
             y_pos,
@@ -2121,9 +2081,7 @@ class Patcher:
         node : Canvas
             The created canvas
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Canvas(
             x_pos,
             y_pos,
@@ -2169,12 +2127,8 @@ class Patcher:
         node : VU
             The created VU meter
         """
-        x_pos, y_pos, pos_update = self._resolve_position(
-            x_pos, y_pos, new_row, new_col
-        )
-        node = VU(
-            x_pos, y_pos, width=width, height=height, receive=receive, label=label
-        )
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
+        node = VU(x_pos, y_pos, width=width, height=height, receive=receive, label=label)
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -2249,9 +2203,7 @@ class Patcher:
         """
         fn = filename or self.filename
         if fn is None:
-            raise ValueError(
-                "No filename specified. Provide filename or set in constructor."
-            )
+            raise ValueError("No filename specified. Provide filename or set in constructor.")
         with open(fn, "w") as f:
             f.write(str(self))
 
@@ -2302,9 +2254,7 @@ class Patcher:
                         f"(has {source_node.num_outlets} outlets)"
                     )
                 elif conn.outlet_index < 0:
-                    errors.append(
-                        f"Negative outlet index {conn.outlet_index} on {source_node!r}"
-                    )
+                    errors.append(f"Negative outlet index {conn.outlet_index} on {source_node!r}")
 
             # Validate inlet index
             if sink_node.num_inlets is not None:
@@ -2314,9 +2264,7 @@ class Patcher:
                         f"(has {sink_node.num_inlets} inlets)"
                     )
                 elif conn.inlet_index < 0:
-                    errors.append(
-                        f"Negative inlet index {conn.inlet_index} on {sink_node!r}"
-                    )
+                    errors.append(f"Negative inlet index {conn.inlet_index} on {sink_node!r}")
 
         # Check for cycles if requested
         if check_cycles:
@@ -2324,9 +2272,7 @@ class Patcher:
             if cycles:
                 for cycle in cycles:
                     cycle_nodes = [repr(self.nodes[i]) for i in cycle]
-                    warnings.warn(
-                        f"Cycle detected: {' -> '.join(cycle_nodes)}", CycleWarning
-                    )
+                    warnings.warn(f"Cycle detected: {' -> '.join(cycle_nodes)}", CycleWarning)
 
         if errors:
             raise InvalidConnectionError(
@@ -2423,9 +2369,7 @@ class Patcher:
             max_outlet = max(max_outlet, conn.outlet_index)
 
         nodes_with_counts = sum(
-            1
-            for n in self.nodes
-            if n.num_inlets is not None or n.num_outlets is not None
+            1 for n in self.nodes if n.num_inlets is not None or n.num_outlets is not None
         )
         coverage = nodes_with_counts / len(self.nodes) * 100 if self.nodes else 0
 
@@ -2488,7 +2432,7 @@ class Patcher:
             """Extract display text from a node."""
             params = node.parameters
             if "text" in params:
-                return params["text"]
+                return str(params["text"])
             elif "name" in params:
                 return f"[{params['name']}]"
             elif isinstance(node, Msg):
@@ -2567,9 +2511,7 @@ class Patcher:
         # Draw connections first (behind nodes)
         lines.append("  <!-- Connections -->")
         for conn in self.connections:
-            source_info = (
-                node_info[conn.source] if conn.source < len(node_info) else None
-            )
+            source_info = node_info[conn.source] if conn.source < len(node_info) else None
             sink_info = node_info[conn.sink] if conn.sink < len(node_info) else None
 
             if source_info is None or sink_info is None:
@@ -2622,8 +2564,7 @@ class Patcher:
                 node_class = "node node-gui"
 
             lines.append(
-                f'  <rect class="{node_class}" x="{x}" y="{y}" '
-                f'width="{w}" height="{h}" rx="2"/>'
+                f'  <rect class="{node_class}" x="{x}" y="{y}" width="{w}" height="{h}" rx="2"/>'
             )
 
             if show_labels:
@@ -2636,12 +2577,8 @@ class Patcher:
                 text_x = x + 4
                 text_y = y + h - 5
                 # Escape XML entities
-                text = (
-                    text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                )
-                lines.append(
-                    f'  <text class="node-text" x="{text_x}" y="{text_y}">{text}</text>'
-                )
+                text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                lines.append(f'  <text class="node-text" x="{text_x}" y="{text_y}">{text}</text>')
 
         lines.append("</svg>")
         return "\n".join(lines)
