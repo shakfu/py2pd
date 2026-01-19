@@ -15,6 +15,7 @@ typecheck:
 build:
 	@rm -rf dist/
 	@uv build
+	@uv twine check dist/*
 
 check:
 	@uv twine check dist/*
