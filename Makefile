@@ -17,13 +17,13 @@ build:
 	@uv build
 
 check:
-	@uvx twine check dist/*
+	@uv twine check dist/*
 
 publish-test:
-	@uvx twine upload --repository testpypi dist/*
+	@uv twine upload --repository testpypi dist/*
 
 publish:
-	@uvx twine upload dist/*
+	@uv twine upload dist/*
 
 clean:
 	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/
