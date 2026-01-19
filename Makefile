@@ -15,16 +15,16 @@ typecheck:
 build:
 	@rm -rf dist/
 	@uv build
-	@uv twine check dist/*
+	@uv run twine check dist/*
 
 check:
-	@uv twine check dist/*
+	@uv run twine check dist/*
 
 publish-test:
-	@uv twine upload --repository testpypi dist/*
+	@uv run twine upload --repository testpypi dist/*
 
 publish:
-	@uv twine upload dist/*
+	@uv run twine upload dist/*
 
 clean:
 	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/
