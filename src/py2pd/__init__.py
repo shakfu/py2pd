@@ -39,7 +39,7 @@ from .api import (
     SUBPATCH_CANVAS_WIDTH as SUBPATCH_CANVAS_WIDTH,
 )
 from .api import (
-    ConnectionError as ConnectionError,
+    PdConnectionError as PdConnectionError,
 )
 from .api import (
     CycleWarning as CycleWarning,

@@ -283,10 +283,7 @@ class PdSubpatch:
     def __str__(self) -> str:
         lines = [f"#N canvas {self.canvas};"]
         for elem in self.elements:
-            if isinstance(elem, PdSubpatch):
-                lines.append(str(elem))
-            else:
-                lines.append(str(elem))
+            lines.append(str(elem))
         if self.restore:
             lines.append(str(self.restore))
         return "\n".join(lines)
@@ -843,6 +840,93 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             restore = PdRestore(pos, p["name"])
             elements.append(PdSubpatch(subpatch_canvas, inner_ast.elements, restore))
 
+        elif isinstance(node, api.Bang):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdBng(
+                    pos,
+                    p["size"],
+                    p["hold"],
+                    p["interrupt"],
+                    p["init"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                )
+            )
+
+        elif isinstance(node, api.Toggle):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdTgl(
+                    pos,
+                    p["size"],
+                    p["init"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                    p["init_value"],
+                    p["default_value"],
+                )
+            )
+
+        elif isinstance(node, api.Symbol):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdSymbolAtom(
+                    pos,
+                    p["width"],
+                    p["lower_limit"],
+                    p["upper_limit"],
+                    p["label_pos"],
+                    p["label"],
+                    p["receive"],
+                    p["send"],
+                )
+            )
+
+        elif isinstance(
+            node,
+            (
+                api.NumberBox,
+                api.VSlider,
+                api.HSlider,
+                api.VRadio,
+                api.HRadio,
+                api.Canvas,
+                api.VU,
+            ),
+        ):
+            # GUI types without dedicated AST classes: parse __str__() output
+            text = str(node)
+            # Strip "#X obj x y " prefix and trailing ";\n"
+            text = text.rstrip("\n").rstrip(";").strip()
+            prefix = f"#X obj {node.parameters['x_pos']} {node.parameters['y_pos']} "
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+            parts = text.split(None, 1)
+            class_name = parts[0] if parts else ""
+            args = tuple(parts[1].split()) if len(parts) > 1 else ()
+            pos = Position(node.parameters["x_pos"], node.parameters["y_pos"])
+            elements.append(PdObj(pos, class_name, args))
+
     # Add connections
     for conn in patch.connections:
         elements.append(PdConnect(conn.source, conn.outlet_index, conn.sink, conn.inlet_index))
@@ -920,13 +1004,48 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node = patch.add_subpatch(name, inner_patch, x_pos=pos.x, y_pos=pos.y)
             node_map.append(node)
 
-        elif isinstance(elem, (PdBng, PdTgl)):
-            # GUI objects - store as generic obj
-            node = patch.add(
-                str(elem).replace("#X obj ", "").rstrip(";"),
-                x_pos=elem.position.x,
-                y_pos=elem.position.y,
+        elif isinstance(elem, PdBng):
+            node = api.Bang(
+                elem.position.x,
+                elem.position.y,
+                size=elem.size,
+                hold=elem.hold,
+                interrupt=elem.interrupt,
+                init=elem.init,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
+                label_color=elem.label_color,
             )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdTgl):
+            node = api.Toggle(
+                elem.position.x,
+                elem.position.y,
+                size=elem.size,
+                init=elem.init,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
+                label_color=elem.label_color,
+                init_value=elem.init_value,
+                default_value=elem.default_value,
+            )
+            patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdConnect):

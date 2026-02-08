@@ -5,11 +5,11 @@ import warnings
 import pytest
 
 from py2pd import (
-    ConnectionError,
     CycleWarning,
     InvalidConnectionError,
     LayoutManager,
     NodeNotFoundError,
+    PdConnectionError,
     Patcher,
 )
 from py2pd.api import (
@@ -216,13 +216,13 @@ class TestObj:
 
     def test_size_minimum(self):
         obj = Obj(0, 0, "x")
-        width, height = obj.size
+        width, height = obj.dimensions
         assert width >= MIN_ELEMENT_WIDTH
 
     def test_size_scales_with_text(self):
         short_obj = Obj(0, 0, "x")
         long_obj = Obj(0, 0, "x" * 50)
-        assert long_obj.size[0] > short_obj.size[0]
+        assert long_obj.dimensions[0] > short_obj.dimensions[0]
 
     def test_escapes_text(self):
         obj = Obj(0, 0, "test;with;semicolons")
@@ -276,7 +276,7 @@ class TestFloat:
 
     def test_size(self):
         fa = Float(0, 0)
-        assert fa.size == (FLOATATOM_WIDTH, FLOATATOM_HEIGHT)
+        assert fa.dimensions == (FLOATATOM_WIDTH, FLOATATOM_HEIGHT)
 
     def test_repr(self):
         fa = Float(50, 60, width=8)
@@ -463,7 +463,7 @@ class TestBang:
 
     def test_size_property(self):
         bang = Bang(0, 0, size=20)
-        assert bang.size == (20, 20)
+        assert bang.dimensions == (20, 20)
 
     def test_inlet_outlet_counts(self):
         bang = Bang(0, 0)
@@ -571,7 +571,7 @@ class TestVSlider:
 
     def test_size_property(self):
         vsl = VSlider(0, 0, width=20, height=100)
-        assert vsl.size == (20, 100)
+        assert vsl.dimensions == (20, 100)
 
 
 class TestHSlider:
@@ -592,7 +592,7 @@ class TestHSlider:
 
     def test_size_property(self):
         hsl = HSlider(0, 0, width=150, height=20)
-        assert hsl.size == (150, 20)
+        assert hsl.dimensions == (150, 20)
 
 
 class TestVRadio:
@@ -616,7 +616,7 @@ class TestVRadio:
 
     def test_size_property(self):
         vradio = VRadio(0, 0, size=20, number=4)
-        assert vradio.size == (20, 80)  # width=size, height=size*number
+        assert vradio.dimensions == (20, 80)  # width=size, height=size*number
 
 
 class TestHRadio:
@@ -639,7 +639,7 @@ class TestHRadio:
 
     def test_size_property(self):
         hradio = HRadio(0, 0, size=20, number=4)
-        assert hradio.size == (80, 20)  # width=size*number, height=size
+        assert hradio.dimensions == (80, 20)  # width=size*number, height=size
 
 
 class TestCanvas:
@@ -670,7 +670,7 @@ class TestCanvas:
 
     def test_size_property(self):
         cnv = Canvas(0, 0, width=150, height=80)
-        assert cnv.size == (150, 80)
+        assert cnv.dimensions == (150, 80)
 
 
 class TestVU:
@@ -953,15 +953,15 @@ class TestExceptionTypes:
     """Tests for custom exception types."""
 
     def test_connection_error_is_value_error(self):
-        assert issubclass(ConnectionError, ValueError)
+        assert issubclass(PdConnectionError, ValueError)
 
     def test_node_not_found_error_is_value_error(self):
         assert issubclass(NodeNotFoundError, ValueError)
 
     def test_exceptions_exportable(self):
-        from py2pd import ConnectionError, NodeNotFoundError
+        from py2pd import PdConnectionError, NodeNotFoundError
 
-        assert ConnectionError is not None
+        assert PdConnectionError is not None
         assert NodeNotFoundError is not None
 
 
@@ -1803,3 +1803,62 @@ class TestAutoLayout:
 
         patch.auto_layout()  # Should not crash on hidden nodes
         assert osc.position[1] < dac.position[1]
+
+    def test_auto_layout_with_cycle(self):
+        """auto_layout must terminate when the graph contains a cycle."""
+        patch = Patcher()
+        a = patch.add("a")
+        b = patch.add("b")
+        c = patch.add("c")
+        patch.link(a, b)
+        patch.link(b, c)
+        patch.link(c, a)  # back-edge creating cycle
+        patch.auto_layout()  # must not loop forever
+        # All nodes should be placed at valid positions
+        for node in patch.nodes:
+            assert node.position[0] >= 0
+            assert node.position[1] >= 0
+
+    def test_auto_layout_self_loop(self):
+        """auto_layout must terminate when a node connects to itself."""
+        patch = Patcher()
+        a = patch.add("delwrite~ loop 1000")
+        b = patch.add("delread~ loop 500")
+        patch.link(a, b)
+        patch.link(b, a)  # feedback loop
+        patch.auto_layout()
+        assert a.position[0] >= 0
+        assert b.position[0] >= 0
+
+    def test_auto_layout_multiple_cycles(self):
+        """auto_layout terminates with multiple independent cycles."""
+        patch = Patcher()
+        a = patch.add("a")
+        b = patch.add("b")
+        c = patch.add("c")
+        d = patch.add("d")
+        patch.link(a, b)
+        patch.link(b, a)  # cycle 1
+        patch.link(c, d)
+        patch.link(d, c)  # cycle 2
+        patch.auto_layout()
+        for node in patch.nodes:
+            assert node.position[0] >= 0
+            assert node.position[1] >= 0
+
+
+class TestUnescapeDollar:
+    """Tests for the unescape dollar sign fix."""
+
+    def test_unescape_escaped_dollar_mid_string(self):
+        """Escaped dollar signs in the middle of a string should be unescaped."""
+        result = unescape("hello \\$1 world")
+        assert "$1" in result
+        assert "\\$" not in result
+
+    def test_unescape_roundtrip_dollar(self):
+        """escape() then unescape() should round-trip dollar signs."""
+        original = "set $1 value"
+        escaped = escape(original)
+        unescaped = unescape(escaped)
+        assert "$1" in unescaped

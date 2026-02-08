@@ -1,5 +1,6 @@
 import re
 import warnings
+from collections import deque
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 # Layout constants (pixels)
@@ -20,7 +21,7 @@ FLOATATOM_WIDTH = 50
 FLOATATOM_HEIGHT = 25
 
 
-class ConnectionError(ValueError):
+class PdConnectionError(ValueError):
     """Raised when connection arguments are invalid."""
 
     pass
@@ -56,7 +57,7 @@ def escape(text: str) -> str:
 def unescape(text: str) -> str:
     disp = re.sub(r" (?<!\\)\\; ", "\n", text)
     disp = re.sub(r" (?<!\\)\\, ", ",", disp)
-    disp = re.sub(r"(?<!\\)\\$", "$", disp)
+    disp = re.sub(r"(?<!\\)\\\$", "$", disp)
     lines = [line.strip() for line in disp.split("\n")]
     return "\n".join(lines)
 
@@ -134,12 +135,12 @@ class Node:
         return (self.parameters["x_pos"], self.parameters["y_pos"])
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (0, 0)
 
     def get_next_position(self, new_row: float, new_col: float) -> Tuple[int, int]:
         x_pos, y_pos = self.position
-        dx, dy = self.size
+        dx, dy = self.dimensions
         if new_row < 1:
             x_pos += dx
             new_col -= 1
@@ -173,7 +174,7 @@ class Obj(Node):
         return f"Obj({p['x_pos']}, {p['y_pos']}, {p['text']!r})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         display_lines = get_display_lines(self.parameters["text"])
         max_chars = max((len(line) for line in display_lines), default=0)
         x_size = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + max_chars * CHAR_WIDTH)
@@ -203,7 +204,7 @@ class Msg(Node):
         return f"Msg({p['x_pos']}, {p['y_pos']}, {p['text']!r})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         display_lines = get_display_lines(self.parameters["text"])
         max_chars = max((len(line) for line in display_lines), default=0)
         x_size = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + max_chars * CHAR_WIDTH)
@@ -251,7 +252,7 @@ class Float(Node):
         return f"Float({p['x_pos']}, {p['y_pos']}, width={p['width']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (FLOATATOM_WIDTH, FLOATATOM_HEIGHT)
 
 
@@ -366,7 +367,7 @@ class Subpatch(Node):
         return f"Subpatch({p['x_pos']}, {p['y_pos']}, {p['name']!r})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         label_text = "pd " + self.parameters["name"]
         x_size = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + len(label_text) * CHAR_WIDTH)
         return (x_size, ROW_HEIGHT)
@@ -478,7 +479,7 @@ class Bang(Node):
         return f"Bang({p['x_pos']}, {p['y_pos']}, size={p['size']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         s = self.parameters["size"]
         return (s, s)
 
@@ -556,7 +557,7 @@ class Toggle(Node):
         return f"Toggle({p['x_pos']}, {p['y_pos']}, size={p['size']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         s = self.parameters["size"]
         return (s, s)
 
@@ -606,7 +607,7 @@ class Symbol(Node):
         return f"Symbol({p['x_pos']}, {p['y_pos']}, width={p['width']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (self.parameters["width"] * CHAR_WIDTH, ROW_HEIGHT)
 
 
@@ -683,7 +684,7 @@ class NumberBox(Node):
         return f"NumberBox({p['x_pos']}, {p['y_pos']}, width={p['width']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (self.parameters["width"] * CHAR_WIDTH, self.parameters["height"])
 
 
@@ -757,7 +758,7 @@ class VSlider(Node):
         return f"VSlider({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (self.parameters["width"], self.parameters["height"])
 
 
@@ -828,7 +829,7 @@ class HSlider(Node):
         return f"HSlider({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (self.parameters["width"], self.parameters["height"])
 
 
@@ -894,7 +895,7 @@ class VRadio(Node):
         return f"VRadio({p['x_pos']}, {p['y_pos']}, number={p['number']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         s = self.parameters["size"]
         n = self.parameters["number"]
         return (s, s * n)
@@ -959,7 +960,7 @@ class HRadio(Node):
         return f"HRadio({p['x_pos']}, {p['y_pos']}, number={p['number']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         s = self.parameters["size"]
         n = self.parameters["number"]
         return (s * n, s)
@@ -1022,7 +1023,7 @@ class Canvas(Node):
         return f"Canvas({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (self.parameters["width"], self.parameters["height"])
 
 
@@ -1081,7 +1082,7 @@ class VU(Node):
         return f"VU({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
 
     @property
-    def size(self) -> Tuple[int, int]:
+    def dimensions(self) -> Tuple[int, int]:
         return (self.parameters["width"], self.parameters["height"])
 
 
@@ -1223,7 +1224,7 @@ class LayoutManager:
             The computed (x, y) position
         """
         x_pos, y_pos = anchor.position
-        dx, dy = anchor.size
+        dx, dy = anchor.dimensions
 
         if new_row < 1:
             # Continue on same row - position to the right
@@ -2651,20 +2652,52 @@ class Patcher:
             outgoing[conn.source].add(conn.sink)
             incoming[conn.sink].add(conn.source)
 
-        # Calculate depth for each node using BFS from sources
+        # Detect back-edges via iterative DFS to break cycles
+        back_edges: Set[Tuple[int, int]] = set()
+        visited: Set[int] = set()
+        on_stack: Set[int] = set()
+        for start in range(n):
+            if start in visited or self.nodes[start].hidden:
+                continue
+            stack: List[Tuple[int, int]] = [(start, 0)]
+            on_stack.add(start)
+            while stack:
+                node_id, idx = stack[-1]
+                neighbors = sorted(outgoing[node_id])
+                if idx < len(neighbors):
+                    stack[-1] = (node_id, idx + 1)
+                    neighbor = neighbors[idx]
+                    if neighbor in on_stack:
+                        back_edges.add((node_id, neighbor))
+                    elif neighbor not in visited and not self.nodes[neighbor].hidden:
+                        on_stack.add(neighbor)
+                        stack.append((neighbor, 0))
+                else:
+                    on_stack.discard(node_id)
+                    visited.add(node_id)
+                    stack.pop()
+
+        # Build DAG by excluding back-edges
+        dag_outgoing: Dict[int, Set[int]] = {i: set() for i in range(n)}
+        dag_incoming: Dict[int, Set[int]] = {i: set() for i in range(n)}
+        for i in range(n):
+            for j in outgoing[i]:
+                if (i, j) not in back_edges:
+                    dag_outgoing[i].add(j)
+                    dag_incoming[j].add(i)
+
+        # Calculate depth for each node using BFS from sources on the DAG
         # Depth = longest path from any source to this node
         depth: Dict[int, int] = {}
 
-        # Find source nodes (no incoming connections)
-        sources = [i for i in range(n) if not incoming[i] and not self.nodes[i].hidden]
+        # Find source nodes (no incoming connections in DAG)
+        sources = [i for i in range(n) if not dag_incoming[i] and not self.nodes[i].hidden]
 
         # If no clear sources, use all non-hidden nodes as potential starts
         if not sources:
             sources = [i for i in range(n) if not self.nodes[i].hidden]
 
-        # BFS to assign depths
-        from collections import deque
-
+        # BFS to assign depths (on DAG, guaranteed to terminate)
         queue: deque[int] = deque()
 
         for src in sources:
@@ -2674,7 +2707,7 @@ class Patcher:
 
         while queue:
             current = queue.popleft()
-            for neighbor in outgoing[current]:
+            for neighbor in dag_outgoing[current]:
                 new_depth = depth[current] + 1
                 if neighbor not in depth or depth[neighbor] < new_depth:
                     depth[neighbor] = new_depth

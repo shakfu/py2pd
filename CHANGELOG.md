@@ -44,7 +44,7 @@ Initial release. A complete rewrite of [puredata-compiler](https://github.com/dy
   - `transform()`, `find_objects()`, `rename_sends_receives()` - AST utilities
 
 - **Exception types**
-  - `ConnectionError`, `NodeNotFoundError`, `InvalidConnectionError`, `CycleWarning`
+  - `PdConnectionError`, `NodeNotFoundError`, `InvalidConnectionError`, `CycleWarning`
 
-[Unreleased]: https://github.com/username/py2pd/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/username/py2pd/releases/tag/v0.1.0
+[Unreleased]: https://github.com/shakfu/py2pd/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/shakfu/py2pd/releases/tag/v0.1.0

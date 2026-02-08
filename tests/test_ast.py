@@ -424,6 +424,87 @@ class TestBridgeFromBuilder:
         ast = from_builder(patch)
         assert isinstance(ast.elements[0], PdSubpatch)
 
+    def test_from_builder_with_bang(self):
+        from py2pd.api import Bang as ApiBang
+
+        patch = Patcher()
+        patch.add_bang(size=20, send="s1", receive="r1")
+        ast = from_builder(patch)
+        from py2pd.ast import PdBng
+
+        assert isinstance(ast.elements[0], PdBng)
+        assert ast.elements[0].size == 20
+        assert ast.elements[0].send == "s1"
+        assert ast.elements[0].receive == "r1"
+
+    def test_from_builder_with_toggle(self):
+        patch = Patcher()
+        patch.add_toggle(size=25, default_value=5)
+        ast = from_builder(patch)
+        from py2pd.ast import PdTgl
+
+        assert isinstance(ast.elements[0], PdTgl)
+        assert ast.elements[0].size == 25
+        assert ast.elements[0].default_value == 5
+
+    def test_from_builder_with_symbol(self):
+        patch = Patcher()
+        patch.add_symbol(width=15)
+        ast = from_builder(patch)
+        from py2pd.ast import PdSymbolAtom
+
+        assert isinstance(ast.elements[0], PdSymbolAtom)
+        assert ast.elements[0].width == 15
+
+    def test_from_builder_with_numberbox(self):
+        patch = Patcher()
+        patch.add_numberbox(width=8, min_val=0, max_val=100)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "nbx"
+
+    def test_from_builder_with_vslider(self):
+        patch = Patcher()
+        patch.add_vslider(width=20, height=150)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "vsl"
+
+    def test_from_builder_with_hslider(self):
+        patch = Patcher()
+        patch.add_hslider(width=200, height=20)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "hsl"
+
+    def test_from_builder_with_vradio(self):
+        patch = Patcher()
+        patch.add_vradio(number=4)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "vradio"
+
+    def test_from_builder_with_hradio(self):
+        patch = Patcher()
+        patch.add_hradio(number=6)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "hradio"
+
+    def test_from_builder_with_canvas(self):
+        patch = Patcher()
+        patch.add_canvas(width=200, height=100)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "cnv"
+
+    def test_from_builder_with_vu(self):
+        patch = Patcher()
+        patch.add_vu(width=20, height=150)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdObj)
+        assert ast.elements[0].class_name == "vu"
+
 
 class TestBridgeToBuilder:
     """Tests for to_builder function."""
@@ -460,6 +541,63 @@ class TestBridgeToBuilder:
         restored = to_builder(ast)
 
         assert len(restored.nodes) == len(original.nodes)
+
+    def test_to_builder_with_bng(self):
+        from py2pd.api import Bang as ApiBang
+        from py2pd.ast import PdBng
+
+        bng = PdBng(Position(10, 20), size=25, hold=300, send="s1")
+        ast = PdPatch(CanvasProperties(), [bng])
+        patch = to_builder(ast)
+        assert len(patch.nodes) == 1
+        node = patch.nodes[0]
+        assert isinstance(node, ApiBang)
+        assert node.parameters["size"] == 25
+        assert node.parameters["hold"] == 300
+        assert node.parameters["send"] == "s1"
+
+    def test_to_builder_with_tgl(self):
+        from py2pd.api import Toggle as ApiToggle
+        from py2pd.ast import PdTgl
+
+        tgl = PdTgl(Position(30, 40), size=20, default_value=5)
+        ast = PdPatch(CanvasProperties(), [tgl])
+        patch = to_builder(ast)
+        assert len(patch.nodes) == 1
+        node = patch.nodes[0]
+        assert isinstance(node, ApiToggle)
+        assert node.parameters["size"] == 20
+        assert node.parameters["default_value"] == 5
+
+    def test_bng_roundtrip(self):
+        from py2pd.api import Bang as ApiBang
+        from py2pd.ast import PdBng
+
+        patch = Patcher()
+        patch.add_bang(size=30, send="test_send")
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdBng)
+        assert ast.elements[0].size == 30
+        assert ast.elements[0].send == "test_send"
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, ApiBang)
+        assert node.parameters["size"] == 30
+        assert node.parameters["send"] == "test_send"
+
+    def test_tgl_roundtrip(self):
+        from py2pd.api import Toggle as ApiToggle
+        from py2pd.ast import PdTgl
+
+        patch = Patcher()
+        patch.add_toggle(size=20, default_value=10)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdTgl)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, ApiToggle)
+        assert node.parameters["size"] == 20
+        assert node.parameters["default_value"] == 10
 
 
 class TestTransform:
