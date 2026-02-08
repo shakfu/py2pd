@@ -38,6 +38,7 @@ Changelog = "https://github.com/shakfu/py2pd/blob/main/CHANGELOG.md"
 dev = [
     "mypy>=1.19.1",
     "pytest>=9.0.2",
+    "pytest-cov>=6.0",
     "ruff>=0.14.13",
     "twine>=6.2.0",
 ]
@@ -48,6 +49,7 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=py2pd --cov-report=term-missing"
 
 [tool.mypy]
 python_version = "3.13"

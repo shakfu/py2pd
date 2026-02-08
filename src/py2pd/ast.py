@@ -256,6 +256,224 @@ class PdTgl:
         )
 
 
+@dataclass(frozen=True)
+class PdNbx:
+    """IEM number box (#X obj ... nbx)."""
+
+    position: Position
+    width: int = 5
+    height: int = 14
+    min_val: float = -1e37
+    max_val: float = 1e37
+    log_flag: int = 0
+    init: int = 0
+    send: str = "empty"
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = 0
+    label_y: int = -8
+    font: int = 0
+    font_size: int = 10
+    bg_color: int = -262144
+    fg_color: int = -1
+    label_color: int = -1
+    init_value: float = 0.0
+    log_height: int = 256
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} nbx {self.width} {self.height} "
+            f"{self.min_val} {self.max_val} {self.log_flag} {self.init} "
+            f"{self.send} {self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.fg_color} {self.label_color} "
+            f"{self.init_value} {self.log_height};"
+        )
+
+
+@dataclass(frozen=True)
+class PdVsl:
+    """Vertical slider (#X obj ... vsl)."""
+
+    position: Position
+    width: int = 15
+    height: int = 128
+    min_val: float = 0.0
+    max_val: float = 127.0
+    log_flag: int = 0
+    init: int = 0
+    send: str = "empty"
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = 0
+    label_y: int = -9
+    font: int = 0
+    font_size: int = 10
+    bg_color: int = -262144
+    fg_color: int = -1
+    label_color: int = -1
+    init_value: float = 0.0
+    steady: int = 1
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} vsl {self.width} {self.height} "
+            f"{self.min_val} {self.max_val} {self.log_flag} {self.init} "
+            f"{self.send} {self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.fg_color} {self.label_color} "
+            f"{self.init_value} {self.steady};"
+        )
+
+
+@dataclass(frozen=True)
+class PdHsl:
+    """Horizontal slider (#X obj ... hsl)."""
+
+    position: Position
+    width: int = 128
+    height: int = 15
+    min_val: float = 0.0
+    max_val: float = 127.0
+    log_flag: int = 0
+    init: int = 0
+    send: str = "empty"
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = -2
+    label_y: int = -8
+    font: int = 0
+    font_size: int = 10
+    bg_color: int = -262144
+    fg_color: int = -1
+    label_color: int = -1
+    init_value: float = 0.0
+    steady: int = 1
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} hsl {self.width} {self.height} "
+            f"{self.min_val} {self.max_val} {self.log_flag} {self.init} "
+            f"{self.send} {self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.fg_color} {self.label_color} "
+            f"{self.init_value} {self.steady};"
+        )
+
+
+@dataclass(frozen=True)
+class PdVradio:
+    """Vertical radio buttons (#X obj ... vradio)."""
+
+    position: Position
+    size: int = 15
+    new_old: int = 0
+    init: int = 0
+    number: int = 8
+    send: str = "empty"
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = 0
+    label_y: int = -8
+    font: int = 0
+    font_size: int = 10
+    bg_color: int = -262144
+    fg_color: int = -1
+    label_color: int = -1
+    init_value: int = 0
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} vradio {self.size} {self.new_old} "
+            f"{self.init} {self.number} {self.send} {self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.fg_color} {self.label_color} {self.init_value};"
+        )
+
+
+@dataclass(frozen=True)
+class PdHradio:
+    """Horizontal radio buttons (#X obj ... hradio)."""
+
+    position: Position
+    size: int = 15
+    new_old: int = 0
+    init: int = 0
+    number: int = 8
+    send: str = "empty"
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = 0
+    label_y: int = -8
+    font: int = 0
+    font_size: int = 10
+    bg_color: int = -262144
+    fg_color: int = -1
+    label_color: int = -1
+    init_value: int = 0
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} hradio {self.size} {self.new_old} "
+            f"{self.init} {self.number} {self.send} {self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.fg_color} {self.label_color} {self.init_value};"
+        )
+
+
+@dataclass(frozen=True)
+class PdCnv:
+    """IEM canvas (#X obj ... cnv)."""
+
+    position: Position
+    size: int = 15
+    width: int = 100
+    height: int = 60
+    send: str = "empty"
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = 20
+    label_y: int = 12
+    font: int = 0
+    font_size: int = 14
+    bg_color: int = -233017
+    label_color: int = -1
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} cnv {self.size} {self.width} "
+            f"{self.height} {self.send} {self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.label_color} 0;"
+        )
+
+
+@dataclass(frozen=True)
+class PdVu:
+    """VU meter (#X obj ... vu)."""
+
+    position: Position
+    width: int = 15
+    height: int = 120
+    receive: str = "empty"
+    label: str = "empty"
+    label_x: int = -1
+    label_y: int = -8
+    font: int = 0
+    font_size: int = 10
+    bg_color: int = -262144
+    label_color: int = -1
+    scale: int = 1
+
+    def __str__(self) -> str:
+        return (
+            f"#X obj {self.position} vu {self.width} {self.height} "
+            f"{self.receive} {self.label} "
+            f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
+            f"{self.bg_color} {self.label_color} {self.scale} 0;"
+        )
+
+
 # Union type for all elements that can appear in a patch
 PdElement = Union[
     PdObj,
@@ -268,6 +486,13 @@ PdElement = Union[
     PdCoords,
     PdBng,
     PdTgl,
+    PdNbx,
+    PdVsl,
+    PdHsl,
+    PdVradio,
+    PdHradio,
+    PdCnv,
+    PdVu,
     "PdSubpatch",
 ]
 
@@ -301,12 +526,25 @@ class PdPatch:
 
     def get_objects(
         self,
-    ) -> List[Union[PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl, PdSubpatch]]:
+    ) -> List[
+        Union[
+            PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl,
+            PdNbx, PdVsl, PdHsl, PdVradio, PdHradio, PdCnv, PdVu,
+            PdSubpatch,
+        ]
+    ]:
         """Get all connectable objects (not connections, arrays, or coords)."""
         return [
             e
             for e in self.elements
-            if isinstance(e, (PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl, PdSubpatch))
+            if isinstance(
+                e,
+                (
+                    PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl,
+                    PdNbx, PdVsl, PdHsl, PdVradio, PdHradio, PdCnv, PdVu,
+                    PdSubpatch,
+                ),
+            )
         ]
 
     def get_connections(self) -> List[PdConnect]:
@@ -382,7 +620,7 @@ def _parse_canvas(tokens: List[str]) -> CanvasProperties:
     height = _parse_int(tokens[5])
 
     # Check if this is a subpatch (has name) or main patch (has font_size)
-    if len(tokens) >= 8 and not tokens[6].isdigit():
+    if len(tokens) >= 8:
         # Subpatch: name and open_on_load
         name = tokens[6]
         open_on_load = _parse_int(tokens[7]) if len(tokens) > 7 else 0
@@ -439,6 +677,148 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_color=_parse_int(args[11], -1) if len(args) > 11 else -1,
             init_value=_parse_int(args[12], 0) if len(args) > 12 else 0,
             default_value=_parse_int(args[13], 0) if len(args) > 13 else 0,
+        )
+
+    elif class_name == "nbx" and len(args) >= 18:
+        return PdNbx(
+            position=pos,
+            width=_parse_int(args[0], 5),
+            height=_parse_int(args[1], 14),
+            min_val=_parse_float(args[2], -1e37),
+            max_val=_parse_float(args[3], 1e37),
+            log_flag=_parse_int(args[4], 0),
+            init=_parse_int(args[5], 0),
+            send=args[6] if len(args) > 6 else "empty",
+            receive=args[7] if len(args) > 7 else "empty",
+            label=args[8] if len(args) > 8 else "empty",
+            label_x=_parse_int(args[9], 0),
+            label_y=_parse_int(args[10], -8),
+            font=_parse_int(args[11], 0),
+            font_size=_parse_int(args[12], 10),
+            bg_color=_parse_int(args[13], -262144),
+            fg_color=_parse_int(args[14], -1),
+            label_color=_parse_int(args[15], -1),
+            init_value=_parse_float(args[16], 0.0),
+            log_height=_parse_int(args[17], 256),
+        )
+
+    elif class_name == "vsl" and len(args) >= 18:
+        return PdVsl(
+            position=pos,
+            width=_parse_int(args[0], 15),
+            height=_parse_int(args[1], 128),
+            min_val=_parse_float(args[2], 0.0),
+            max_val=_parse_float(args[3], 127.0),
+            log_flag=_parse_int(args[4], 0),
+            init=_parse_int(args[5], 0),
+            send=args[6] if len(args) > 6 else "empty",
+            receive=args[7] if len(args) > 7 else "empty",
+            label=args[8] if len(args) > 8 else "empty",
+            label_x=_parse_int(args[9], 0),
+            label_y=_parse_int(args[10], -9),
+            font=_parse_int(args[11], 0),
+            font_size=_parse_int(args[12], 10),
+            bg_color=_parse_int(args[13], -262144),
+            fg_color=_parse_int(args[14], -1),
+            label_color=_parse_int(args[15], -1),
+            init_value=_parse_float(args[16], 0.0),
+            steady=_parse_int(args[17], 1),
+        )
+
+    elif class_name == "hsl" and len(args) >= 18:
+        return PdHsl(
+            position=pos,
+            width=_parse_int(args[0], 128),
+            height=_parse_int(args[1], 15),
+            min_val=_parse_float(args[2], 0.0),
+            max_val=_parse_float(args[3], 127.0),
+            log_flag=_parse_int(args[4], 0),
+            init=_parse_int(args[5], 0),
+            send=args[6] if len(args) > 6 else "empty",
+            receive=args[7] if len(args) > 7 else "empty",
+            label=args[8] if len(args) > 8 else "empty",
+            label_x=_parse_int(args[9], -2),
+            label_y=_parse_int(args[10], -8),
+            font=_parse_int(args[11], 0),
+            font_size=_parse_int(args[12], 10),
+            bg_color=_parse_int(args[13], -262144),
+            fg_color=_parse_int(args[14], -1),
+            label_color=_parse_int(args[15], -1),
+            init_value=_parse_float(args[16], 0.0),
+            steady=_parse_int(args[17], 1),
+        )
+
+    elif class_name == "vradio" and len(args) >= 15:
+        return PdVradio(
+            position=pos,
+            size=_parse_int(args[0], 15),
+            new_old=_parse_int(args[1], 0),
+            init=_parse_int(args[2], 0),
+            number=_parse_int(args[3], 8),
+            send=args[4] if len(args) > 4 else "empty",
+            receive=args[5] if len(args) > 5 else "empty",
+            label=args[6] if len(args) > 6 else "empty",
+            label_x=_parse_int(args[7], 0),
+            label_y=_parse_int(args[8], -8),
+            font=_parse_int(args[9], 0),
+            font_size=_parse_int(args[10], 10),
+            bg_color=_parse_int(args[11], -262144),
+            fg_color=_parse_int(args[12], -1),
+            label_color=_parse_int(args[13], -1),
+            init_value=_parse_int(args[14], 0),
+        )
+
+    elif class_name == "hradio" and len(args) >= 15:
+        return PdHradio(
+            position=pos,
+            size=_parse_int(args[0], 15),
+            new_old=_parse_int(args[1], 0),
+            init=_parse_int(args[2], 0),
+            number=_parse_int(args[3], 8),
+            send=args[4] if len(args) > 4 else "empty",
+            receive=args[5] if len(args) > 5 else "empty",
+            label=args[6] if len(args) > 6 else "empty",
+            label_x=_parse_int(args[7], 0),
+            label_y=_parse_int(args[8], -8),
+            font=_parse_int(args[9], 0),
+            font_size=_parse_int(args[10], 10),
+            bg_color=_parse_int(args[11], -262144),
+            fg_color=_parse_int(args[12], -1),
+            label_color=_parse_int(args[13], -1),
+            init_value=_parse_int(args[14], 0),
+        )
+
+    elif class_name == "cnv" and len(args) >= 13:
+        return PdCnv(
+            position=pos,
+            size=_parse_int(args[0], 15),
+            width=_parse_int(args[1], 100),
+            height=_parse_int(args[2], 60),
+            send=args[3] if len(args) > 3 else "empty",
+            receive=args[4] if len(args) > 4 else "empty",
+            label=args[5] if len(args) > 5 else "empty",
+            label_x=_parse_int(args[6], 20),
+            label_y=_parse_int(args[7], 12),
+            font=_parse_int(args[8], 0),
+            font_size=_parse_int(args[9], 14),
+            bg_color=_parse_int(args[10], -233017),
+            label_color=_parse_int(args[11], -1),
+        )
+
+    elif class_name == "vu" and len(args) >= 12:
+        return PdVu(
+            position=pos,
+            width=_parse_int(args[0], 15),
+            height=_parse_int(args[1], 120),
+            receive=args[2] if len(args) > 2 else "empty",
+            label=args[3] if len(args) > 3 else "empty",
+            label_x=_parse_int(args[4], -1),
+            label_y=_parse_int(args[5], -8),
+            font=_parse_int(args[6], 0),
+            font_size=_parse_int(args[7], 10),
+            bg_color=_parse_int(args[8], -262144),
+            label_color=_parse_int(args[9], -1),
+            scale=_parse_int(args[10], 1),
         )
 
     return PdObj(pos, class_name, args)
@@ -807,6 +1187,10 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(node.parameters["x_pos"], node.parameters["y_pos"])
             elements.append(PdObj(pos, class_name, args))
 
+        elif isinstance(node, api.Comment):
+            pos = Position(node.parameters["x_pos"], node.parameters["y_pos"])
+            elements.append(PdText(pos, node.parameters["content"]))
+
         elif isinstance(node, api.Msg):
             pos = Position(node.parameters["x_pos"], node.parameters["y_pos"])
             elements.append(PdMsg(pos, node.parameters["text"]))
@@ -902,30 +1286,92 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
                 )
             )
 
-        elif isinstance(
-            node,
-            (
-                api.NumberBox,
-                api.VSlider,
-                api.HSlider,
-                api.VRadio,
-                api.HRadio,
-                api.Canvas,
-                api.VU,
-            ),
-        ):
-            # GUI types without dedicated AST classes: parse __str__() output
-            text = str(node)
-            # Strip "#X obj x y " prefix and trailing ";\n"
-            text = text.rstrip("\n").rstrip(";").strip()
-            prefix = f"#X obj {node.parameters['x_pos']} {node.parameters['y_pos']} "
-            if text.startswith(prefix):
-                text = text[len(prefix):]
-            parts = text.split(None, 1)
-            class_name = parts[0] if parts else ""
-            args = tuple(parts[1].split()) if len(parts) > 1 else ()
-            pos = Position(node.parameters["x_pos"], node.parameters["y_pos"])
-            elements.append(PdObj(pos, class_name, args))
+        elif isinstance(node, api.NumberBox):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdNbx(
+                    pos, p["width"], p["height"], p["min_val"], p["max_val"],
+                    p["log_flag"], p["init"], p["send"], p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["fg_color"], p["label_color"],
+                    p["init_value"], p["log_height"],
+                )
+            )
+
+        elif isinstance(node, api.VSlider):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdVsl(
+                    pos, p["width"], p["height"], p["min_val"], p["max_val"],
+                    p["log_flag"], p["init"], p["send"], p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["fg_color"], p["label_color"],
+                    p["init_value"], p["steady"],
+                )
+            )
+
+        elif isinstance(node, api.HSlider):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdHsl(
+                    pos, p["width"], p["height"], p["min_val"], p["max_val"],
+                    p["log_flag"], p["init"], p["send"], p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["fg_color"], p["label_color"],
+                    p["init_value"], p["steady"],
+                )
+            )
+
+        elif isinstance(node, api.VRadio):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdVradio(
+                    pos, p["size"], p["new_old"], p["init"], p["number"],
+                    p["send"], p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["fg_color"], p["label_color"], p["init_value"],
+                )
+            )
+
+        elif isinstance(node, api.HRadio):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdHradio(
+                    pos, p["size"], p["new_old"], p["init"], p["number"],
+                    p["send"], p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["fg_color"], p["label_color"], p["init_value"],
+                )
+            )
+
+        elif isinstance(node, api.Canvas):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdCnv(
+                    pos, p["size"], p["width"], p["height"],
+                    p["send"], p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["label_color"],
+                )
+            )
+
+        elif isinstance(node, api.VU):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            elements.append(
+                PdVu(
+                    pos, p["width"], p["height"],
+                    p["receive"], p["label"],
+                    p["label_x"], p["label_y"], p["font"], p["font_size"],
+                    p["bg_color"], p["label_color"], p["scale"],
+                )
+            )
 
     # Add connections
     for conn in patch.connections:
@@ -983,13 +1429,23 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node_map.append(node)
 
         elif isinstance(elem, PdSymbolAtom):
-            # Treat as a generic object for now
-            node = patch.add("symbolatom", x_pos=elem.position.x, y_pos=elem.position.y)
+            node = api.Symbol(
+                elem.position.x,
+                elem.position.y,
+                width=elem.width,
+                lower_limit=elem.lower_limit,
+                upper_limit=elem.upper_limit,
+                label_pos=elem.label_pos,
+                label=elem.label,
+                receive=elem.receive,
+                send=elem.send,
+            )
+            patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdText):
-            # Store as comment/generic obj
-            node = patch.add(f"text {elem.content}", x_pos=elem.position.x, y_pos=elem.position.y)
+            node = api.Comment(elem.position.x, elem.position.y, elem.content)
+            patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdArray):
@@ -1044,6 +1500,107 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                 label_color=elem.label_color,
                 init_value=elem.init_value,
                 default_value=elem.default_value,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdNbx):
+            node = api.NumberBox(
+                elem.position.x, elem.position.y,
+                width=elem.width, height=elem.height,
+                min_val=elem.min_val, max_val=elem.max_val,
+                log_flag=elem.log_flag, init=elem.init,
+                send=elem.send, receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                label_color=elem.label_color,
+                init_value=elem.init_value, log_height=elem.log_height,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdVsl):
+            node = api.VSlider(
+                elem.position.x, elem.position.y,
+                width=elem.width, height=elem.height,
+                min_val=elem.min_val, max_val=elem.max_val,
+                log_flag=elem.log_flag, init=elem.init,
+                send=elem.send, receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                label_color=elem.label_color,
+                init_value=elem.init_value, steady=elem.steady,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdHsl):
+            node = api.HSlider(
+                elem.position.x, elem.position.y,
+                width=elem.width, height=elem.height,
+                min_val=elem.min_val, max_val=elem.max_val,
+                log_flag=elem.log_flag, init=elem.init,
+                send=elem.send, receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                label_color=elem.label_color,
+                init_value=elem.init_value, steady=elem.steady,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdVradio):
+            node = api.VRadio(
+                elem.position.x, elem.position.y,
+                size=elem.size, new_old=elem.new_old,
+                init=elem.init, number=elem.number,
+                send=elem.send, receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                label_color=elem.label_color, init_value=elem.init_value,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdHradio):
+            node = api.HRadio(
+                elem.position.x, elem.position.y,
+                size=elem.size, new_old=elem.new_old,
+                init=elem.init, number=elem.number,
+                send=elem.send, receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                label_color=elem.label_color, init_value=elem.init_value,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdCnv):
+            node = api.Canvas(
+                elem.position.x, elem.position.y,
+                size=elem.size, width=elem.width, height=elem.height,
+                send=elem.send, receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, label_color=elem.label_color,
+            )
+            patch.nodes.append(node)
+            node_map.append(node)
+
+        elif isinstance(elem, PdVu):
+            node = api.VU(
+                elem.position.x, elem.position.y,
+                width=elem.width, height=elem.height,
+                receive=elem.receive, label=elem.label,
+                label_x=elem.label_x, label_y=elem.label_y,
+                font=elem.font, font_size=elem.font_size,
+                bg_color=elem.bg_color, label_color=elem.label_color,
+                scale=elem.scale,
             )
             patch.nodes.append(node)
             node_map.append(node)
@@ -1143,7 +1700,7 @@ def rename_sends_receives(patch: PdPatch, old_name: str, new_name: str) -> PdPat
         A new patch with renamed symbols
     """
 
-    def rename(elem):
+    def rename(elem: PdElement) -> Optional[PdElement]:
         if isinstance(elem, PdFloatAtom):
             return PdFloatAtom(
                 elem.position,

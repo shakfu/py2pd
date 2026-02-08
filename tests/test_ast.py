@@ -15,18 +15,30 @@ from py2pd import (
     serialize_to_file,
     to_builder,
 )
+from py2pd.api import Comment, Symbol
 from py2pd.ast import (
     CanvasProperties,
     PdArray,
+    PdCnv,
     PdConnect,
+    PdCoords,
     PdFloatAtom,
+    PdHradio,
+    PdHsl,
     PdMsg,
+    PdNbx,
     PdObj,
     PdPatch,
     PdRestore,
     PdSubpatch,
+    PdSymbolAtom,
     PdText,
+    PdVradio,
+    PdVsl,
+    PdVu,
     Position,
+    _preprocess,
+    _split_statements,
     find_objects,
     rename_sends_receives,
     transform,
@@ -249,6 +261,17 @@ class TestParser:
         assert len(subpatch.elements) == 2
         assert subpatch.restore.name == "mysubpatch"
 
+    def test_parse_numeric_subpatch_name(self):
+        content = """#N canvas 0 50 450 300 10;
+#N canvas 0 0 300 200 42 0;
+#X obj 50 50 inlet;
+#X restore 100 100 pd 42;"""
+        patch = parse(content)
+        assert len(patch.elements) == 1
+        assert isinstance(patch.elements[0], PdSubpatch)
+        assert patch.elements[0].canvas.name == "42"
+        assert patch.elements[0].restore.name == "42"
+
     def test_parse_empty_raises(self):
         with pytest.raises(ParseError):
             parse("")
@@ -460,50 +483,56 @@ class TestBridgeFromBuilder:
         patch = Patcher()
         patch.add_numberbox(width=8, min_val=0, max_val=100)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "nbx"
+        assert isinstance(ast.elements[0], PdNbx)
+        assert ast.elements[0].width == 8
+        assert ast.elements[0].min_val == 0
+        assert ast.elements[0].max_val == 100
 
     def test_from_builder_with_vslider(self):
         patch = Patcher()
         patch.add_vslider(width=20, height=150)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "vsl"
+        assert isinstance(ast.elements[0], PdVsl)
+        assert ast.elements[0].width == 20
+        assert ast.elements[0].height == 150
 
     def test_from_builder_with_hslider(self):
         patch = Patcher()
         patch.add_hslider(width=200, height=20)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "hsl"
+        assert isinstance(ast.elements[0], PdHsl)
+        assert ast.elements[0].width == 200
+        assert ast.elements[0].height == 20
 
     def test_from_builder_with_vradio(self):
         patch = Patcher()
         patch.add_vradio(number=4)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "vradio"
+        assert isinstance(ast.elements[0], PdVradio)
+        assert ast.elements[0].number == 4
 
     def test_from_builder_with_hradio(self):
         patch = Patcher()
         patch.add_hradio(number=6)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "hradio"
+        assert isinstance(ast.elements[0], PdHradio)
+        assert ast.elements[0].number == 6
 
     def test_from_builder_with_canvas(self):
         patch = Patcher()
         patch.add_canvas(width=200, height=100)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "cnv"
+        assert isinstance(ast.elements[0], PdCnv)
+        assert ast.elements[0].width == 200
+        assert ast.elements[0].height == 100
 
     def test_from_builder_with_vu(self):
         patch = Patcher()
         patch.add_vu(width=20, height=150)
         ast = from_builder(patch)
-        assert isinstance(ast.elements[0], PdObj)
-        assert ast.elements[0].class_name == "vu"
+        assert isinstance(ast.elements[0], PdVu)
+        assert ast.elements[0].width == 20
+        assert ast.elements[0].height == 150
 
 
 class TestBridgeToBuilder:
@@ -598,6 +627,74 @@ class TestBridgeToBuilder:
         assert isinstance(node, ApiToggle)
         assert node.parameters["size"] == 20
         assert node.parameters["default_value"] == 10
+
+    def test_to_builder_symbolatom(self):
+        sa = PdSymbolAtom(
+            Position(10, 20), width=15, lower_limit=0, upper_limit=0,
+            label_pos=1, label="lbl", receive="r1", send="s1",
+        )
+        ast = PdPatch(CanvasProperties(), [sa])
+        patch = to_builder(ast)
+        assert len(patch.nodes) == 1
+        node = patch.nodes[0]
+        assert isinstance(node, Symbol)
+        assert node.parameters["width"] == 15
+        assert node.parameters["label_pos"] == 1
+        assert node.parameters["label"] == "lbl"
+        assert node.parameters["receive"] == "r1"
+        assert node.parameters["send"] == "s1"
+
+    def test_symbolatom_roundtrip(self):
+        patch = Patcher()
+        patch.add_symbol(width=15, label="test_label", send="s1", receive="r1")
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdSymbolAtom)
+        assert ast.elements[0].width == 15
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, Symbol)
+        assert node.parameters["width"] == 15
+        assert node.parameters["label"] == "test_label"
+
+    def test_to_builder_text_produces_comment(self):
+        text = PdText(Position(50, 60), "This is a comment")
+        ast = PdPatch(CanvasProperties(), [text])
+        patch = to_builder(ast)
+        assert len(patch.nodes) == 1
+        node = patch.nodes[0]
+        assert isinstance(node, Comment)
+        assert node.parameters["content"] == "This is a comment"
+        assert node.num_inlets == 0
+        assert node.num_outlets == 0
+
+    def test_comment_from_builder(self):
+        patch = Patcher()
+        comment = Comment(30, 40, "hello world")
+        patch.nodes.append(comment)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdText)
+        assert ast.elements[0].content == "hello world"
+        assert ast.elements[0].position.x == 30
+        assert ast.elements[0].position.y == 40
+
+    def test_text_roundtrip(self):
+        content = """#N canvas 0 50 1000 600 10;
+#X text 50 60 This is a comment;"""
+        ast = parse(content)
+        assert isinstance(ast.elements[0], PdText)
+        result = serialize(ast)
+        ast2 = parse(result)
+        assert isinstance(ast2.elements[0], PdText)
+        assert ast2.elements[0].content == "This is a comment"
+
+    def test_text_builder_roundtrip(self):
+        text = PdText(Position(50, 60), "round trip text")
+        ast = PdPatch(CanvasProperties(), [text])
+        patch = to_builder(ast)
+        ast2 = from_builder(patch)
+        assert isinstance(ast2.elements[0], PdText)
+        assert ast2.elements[0].content == "round trip text"
+        assert ast2.elements[0].position.x == 50
 
 
 class TestTransform:
@@ -745,3 +842,433 @@ class TestASTExports:
         from py2pd import ParseError
 
         assert issubclass(ParseError, Exception)
+
+
+class TestPdNbx:
+    """Tests for PdNbx AST type."""
+
+    def test_parse_nbx(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 nbx 5 14 -1e+37 1e+37 0 0 "
+            "empty empty empty 0 -8 0 10 -262144 -1 -1 0.0 256;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdNbx)
+        assert elem.position == Position(10, 20)
+        assert elem.width == 5
+        assert elem.height == 14
+
+    def test_to_builder_nbx(self):
+        from py2pd.api import NumberBox
+        nbx = PdNbx(Position(10, 20), width=8, min_val=0, max_val=100)
+        ast = PdPatch(CanvasProperties(), [nbx])
+        patch = to_builder(ast)
+        assert len(patch.nodes) == 1
+        node = patch.nodes[0]
+        assert isinstance(node, NumberBox)
+        assert node.parameters["width"] == 8
+        assert node.parameters["min_val"] == 0
+        assert node.parameters["max_val"] == 100
+
+    def test_from_builder_nbx(self):
+        patch = Patcher()
+        patch.add_numberbox(width=6, height=16, min_val=-10, max_val=10)
+        ast = from_builder(patch)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdNbx)
+        assert elem.width == 6
+        assert elem.height == 16
+        assert elem.min_val == -10
+        assert elem.max_val == 10
+
+    def test_nbx_roundtrip(self):
+        from py2pd.api import NumberBox
+        patch = Patcher()
+        patch.add_numberbox(width=7, min_val=-5, max_val=50)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdNbx)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, NumberBox)
+        assert node.parameters["width"] == 7
+        assert node.parameters["min_val"] == -5
+        assert node.parameters["max_val"] == 50
+
+
+class TestPdVsl:
+    """Tests for PdVsl AST type."""
+
+    def test_parse_vsl(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 vsl 15 128 0 127 0 0 "
+            "empty empty empty 0 -9 0 10 -262144 -1 -1 0 1;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdVsl)
+        assert elem.width == 15
+        assert elem.height == 128
+
+    def test_to_builder_vsl(self):
+        from py2pd.api import VSlider
+        vsl = PdVsl(Position(10, 20), width=20, height=150)
+        ast = PdPatch(CanvasProperties(), [vsl])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, VSlider)
+        assert node.parameters["width"] == 20
+        assert node.parameters["height"] == 150
+
+    def test_vsl_roundtrip(self):
+        from py2pd.api import VSlider
+        patch = Patcher()
+        patch.add_vslider(width=20, height=200, min_val=0, max_val=1000)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdVsl)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, VSlider)
+        assert node.parameters["width"] == 20
+        assert node.parameters["height"] == 200
+
+
+class TestPdHsl:
+    """Tests for PdHsl AST type."""
+
+    def test_parse_hsl(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 hsl 128 15 0 127 0 0 "
+            "empty empty empty -2 -8 0 10 -262144 -1 -1 0 1;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdHsl)
+        assert elem.width == 128
+        assert elem.height == 15
+
+    def test_to_builder_hsl(self):
+        from py2pd.api import HSlider
+        hsl = PdHsl(Position(10, 20), width=200, height=20)
+        ast = PdPatch(CanvasProperties(), [hsl])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, HSlider)
+        assert node.parameters["width"] == 200
+        assert node.parameters["height"] == 20
+
+    def test_hsl_roundtrip(self):
+        from py2pd.api import HSlider
+        patch = Patcher()
+        patch.add_hslider(width=256, height=20, min_val=0, max_val=1000)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdHsl)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, HSlider)
+        assert node.parameters["width"] == 256
+        assert node.parameters["height"] == 20
+
+
+class TestPdVradio:
+    """Tests for PdVradio AST type."""
+
+    def test_parse_vradio(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 vradio 15 0 0 8 "
+            "empty empty empty 0 -8 0 10 -262144 -1 -1 0;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdVradio)
+        assert elem.size == 15
+        assert elem.number == 8
+
+    def test_to_builder_vradio(self):
+        from py2pd.api import VRadio
+        vr = PdVradio(Position(10, 20), number=4)
+        ast = PdPatch(CanvasProperties(), [vr])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, VRadio)
+        assert node.parameters["number"] == 4
+
+    def test_vradio_roundtrip(self):
+        from py2pd.api import VRadio
+        patch = Patcher()
+        patch.add_vradio(size=20, number=5)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdVradio)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, VRadio)
+        assert node.parameters["size"] == 20
+        assert node.parameters["number"] == 5
+
+
+class TestPdHradio:
+    """Tests for PdHradio AST type."""
+
+    def test_parse_hradio(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 hradio 15 0 0 8 "
+            "empty empty empty 0 -8 0 10 -262144 -1 -1 0;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdHradio)
+        assert elem.size == 15
+        assert elem.number == 8
+
+    def test_to_builder_hradio(self):
+        from py2pd.api import HRadio
+        hr = PdHradio(Position(10, 20), number=6)
+        ast = PdPatch(CanvasProperties(), [hr])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, HRadio)
+        assert node.parameters["number"] == 6
+
+    def test_hradio_roundtrip(self):
+        from py2pd.api import HRadio
+        patch = Patcher()
+        patch.add_hradio(size=20, number=3)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdHradio)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, HRadio)
+        assert node.parameters["size"] == 20
+        assert node.parameters["number"] == 3
+
+
+class TestPdCnv:
+    """Tests for PdCnv AST type."""
+
+    def test_parse_cnv(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 cnv 15 100 60 "
+            "empty empty empty 20 12 0 14 -233017 -1 0;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdCnv)
+        assert elem.size == 15
+        assert elem.width == 100
+        assert elem.height == 60
+
+    def test_to_builder_cnv(self):
+        from py2pd.api import Canvas
+        cnv = PdCnv(Position(10, 20), width=200, height=100)
+        ast = PdPatch(CanvasProperties(), [cnv])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, Canvas)
+        assert node.parameters["width"] == 200
+        assert node.parameters["height"] == 100
+
+    def test_cnv_roundtrip(self):
+        from py2pd.api import Canvas
+        patch = Patcher()
+        patch.add_canvas(width=300, height=150, label="test_label")
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdCnv)
+        assert ast.elements[0].label == "test_label"
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, Canvas)
+        assert node.parameters["width"] == 300
+        assert node.parameters["height"] == 150
+
+    def test_cnv_str_trailing_zero(self):
+        cnv = PdCnv(Position(10, 20))
+        result = str(cnv)
+        assert result.endswith("0;")
+
+
+class TestPdVu:
+    """Tests for PdVu AST type."""
+
+    def test_parse_vu(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 10 20 vu 15 120 "
+            "empty empty -1 -8 0 10 -262144 -1 1 0;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdVu)
+        assert elem.width == 15
+        assert elem.height == 120
+
+    def test_to_builder_vu(self):
+        from py2pd.api import VU
+        vu = PdVu(Position(10, 20), width=20, height=150)
+        ast = PdPatch(CanvasProperties(), [vu])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, VU)
+        assert node.parameters["width"] == 20
+        assert node.parameters["height"] == 150
+
+    def test_vu_roundtrip(self):
+        from py2pd.api import VU
+        patch = Patcher()
+        patch.add_vu(width=25, height=200)
+        ast = from_builder(patch)
+        assert isinstance(ast.elements[0], PdVu)
+        restored = to_builder(ast)
+        node = restored.nodes[0]
+        assert isinstance(node, VU)
+        assert node.parameters["width"] == 25
+        assert node.parameters["height"] == 200
+
+    def test_vu_str_trailing_zero(self):
+        vu = PdVu(Position(10, 20))
+        result = str(vu)
+        assert result.endswith("0;")
+
+
+class TestPreprocess:
+    """Tests for _preprocess function."""
+
+    def test_crlf_normalization(self):
+        result = _preprocess("line1\r\nline2\r\n")
+        assert "\r" not in result
+        assert result == "line1\nline2\n"
+
+    def test_cr_normalization(self):
+        result = _preprocess("line1\rline2\r")
+        assert "\r" not in result
+        assert result == "line1\nline2\n"
+
+    def test_line_continuation(self):
+        result = _preprocess("hello \\\nworld")
+        assert result == "hello world"
+
+    def test_multiple_continuations(self):
+        result = _preprocess("a \\\nb \\\nc")
+        assert result == "a b c"
+
+    def test_mixed_endings_and_continuation(self):
+        result = _preprocess("a \\\r\nb")
+        assert result == "a b"
+
+    def test_noop(self):
+        result = _preprocess("no special chars")
+        assert result == "no special chars"
+
+
+class TestSplitStatements:
+    """Tests for _split_statements function."""
+
+    def test_basic_splitting(self):
+        stmts = _split_statements("#X obj 0 0 test;#X msg 0 0 bang;")
+        assert len(stmts) == 2
+        assert stmts[0] == "#X obj 0 0 test;"
+        assert stmts[1] == "#X msg 0 0 bang;"
+
+    def test_escaped_semicolons(self):
+        stmts = _split_statements(r"#X msg 0 0 hello \; world;")
+        assert len(stmts) == 1
+        assert r"\;" in stmts[0]
+
+    def test_empty_input(self):
+        stmts = _split_statements("")
+        assert stmts == []
+
+    def test_whitespace_only(self):
+        stmts = _split_statements("   \n\t  ")
+        assert stmts == []
+
+    def test_consecutive_semicolons(self):
+        stmts = _split_statements("a;b;;c;")
+        # The bare ";" from ";;" is kept as a non-empty statement
+        assert len(stmts) == 4
+        assert stmts[0] == "a;"
+        assert stmts[1] == "b;"
+        assert stmts[2] == ";"
+        assert stmts[3] == "c;"
+
+    def test_trailing_content_without_semicolon(self):
+        stmts = _split_statements("#X obj 0 0 test;trailing")
+        assert len(stmts) == 2
+        assert stmts[1] == "trailing"
+
+
+class TestParserRobustness:
+    """Tests for parser handling of malformed input."""
+
+    def test_truncated_obj_line(self):
+        content = "#N canvas 0 50 450 300 10;\n#X obj 50;"
+        with pytest.raises(ParseError):
+            parse(content)
+
+    def test_missing_connect_fields(self):
+        content = "#N canvas 0 50 450 300 10;\n#X connect 0 0;"
+        with pytest.raises(ParseError):
+            parse(content)
+
+    def test_binary_garbage(self):
+        content = b"\x00\x01\x02\xff\xfe".decode("utf-8", errors="replace")
+        with pytest.raises(ParseError):
+            parse(content)
+
+    def test_truncated_canvas_line(self):
+        content = "#N canvas 0 50;"
+        with pytest.raises(ParseError):
+            parse(content)
+
+
+class TestPdCoords:
+    """Tests for PdCoords AST type."""
+
+    def test_parse_with_all_fields(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X coords 0 1 1 0 200 140 1 0 0 0;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdCoords)
+        assert elem.x_from == 0
+        assert elem.y_from == 1
+        assert elem.x_to == 1
+        assert elem.y_to == 0
+        assert elem.width == 200
+        assert elem.height == 140
+        assert elem.graph_on_parent == 1
+
+    def test_parse_with_minimal_fields(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X coords 0 1 1 0 100 80 1;"
+        )
+        ast = parse(content)
+        elem = ast.elements[0]
+        assert isinstance(elem, PdCoords)
+        assert elem.hide_name == 0
+        assert elem.x_margin == 0
+        assert elem.y_margin == 0
+
+    def test_str_roundtrip(self):
+        coords = PdCoords(0, 1, 1, 0, 200, 140, 1, 0, 5, 10)
+        result = str(coords)
+        assert result == "#X coords 0 1 1 0 200 140 1 0 5 10;"
+
+    def test_coords_in_patch_context(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X obj 50 50 osc~ 440;\n"
+            "#X coords 0 1 1 0 200 140 1 0 0 0;"
+        )
+        ast = parse(content)
+        assert len(ast.elements) == 2
+        assert isinstance(ast.elements[0], PdObj)
+        assert isinstance(ast.elements[1], PdCoords)

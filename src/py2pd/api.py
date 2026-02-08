@@ -102,7 +102,7 @@ class Node:
         owner: "Node"
         index: int
 
-        def __init__(self, owner: "Node", index: int):
+        def __init__(self, owner: "Node", index: int) -> None:
             self.owner = owner
             self.index = index
 
@@ -160,7 +160,7 @@ class Obj(Node):
         text: str,
         num_inlets: Optional[int] = None,
         num_outlets: Optional[int] = None,
-    ):
+    ) -> None:
         self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": escape(text)}
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
@@ -190,7 +190,7 @@ class Msg(Node):
         text: str,
         num_inlets: Optional[int] = 1,
         num_outlets: Optional[int] = 1,
-    ):
+    ) -> None:
         self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": escape(text)}
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
@@ -225,7 +225,7 @@ class Float(Node):
         send: str = "-",
         num_inlets: Optional[int] = 1,
         num_outlets: Optional[int] = 1,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -254,6 +254,27 @@ class Float(Node):
     @property
     def dimensions(self) -> Tuple[int, int]:
         return (FLOATATOM_WIDTH, FLOATATOM_HEIGHT)
+
+
+class Comment(Node):
+    """A comment (#X text) - displays non-functional text in the patch."""
+
+    def __init__(self, x_pos: int, y_pos: int, content: str = "") -> None:
+        self.parameters = {
+            "x_pos": x_pos,
+            "y_pos": y_pos,
+            "content": content,
+        }
+        self.num_inlets = 0
+        self.num_outlets = 0
+
+    def __str__(self) -> str:
+        p = self.parameters
+        return f"#X text {p['x_pos']} {p['y_pos']} {p['content']};\n"
+
+    def __repr__(self) -> str:
+        p = self.parameters
+        return f"Comment({p['x_pos']}, {p['y_pos']}, {p['content']!r})"
 
 
 # Default subpatch canvas dimensions (pixels)
@@ -324,7 +345,7 @@ class Subpatch(Node):
         num_outlets: Optional[int] = None,
         canvas_width: int = SUBPATCH_CANVAS_WIDTH,
         canvas_height: int = SUBPATCH_CANVAS_HEIGHT,
-    ):
+    ) -> None:
         """Create a subpatch node.
 
         Parameters
@@ -374,7 +395,7 @@ class Subpatch(Node):
 
 
 class Array(Node):
-    def __init__(self, name: str, length: int, element_type: str = "float", save_flag: int = 0):
+    def __init__(self, name: str, length: int, element_type: str = "float", save_flag: int = 0) -> None:
         self.hidden = True
         self.parameters = {
             "name": name,
@@ -443,7 +464,7 @@ class Bang(Node):
         bg_color: int = IEM_BG_COLOR,
         fg_color: int = IEM_FG_COLOR,
         label_color: int = IEM_LABEL_COLOR,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -520,7 +541,7 @@ class Toggle(Node):
         label_color: int = IEM_LABEL_COLOR,
         init_value: int = 0,
         default_value: int = 1,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -579,7 +600,7 @@ class Symbol(Node):
         label: str = "-",
         receive: str = "-",
         send: str = "-",
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -642,7 +663,7 @@ class NumberBox(Node):
         label_color: int = IEM_LABEL_COLOR,
         init_value: float = 0,
         log_height: int = 256,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -716,7 +737,7 @@ class VSlider(Node):
         label_color: int = IEM_LABEL_COLOR,
         init_value: float = 0,
         steady: int = 1,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -787,7 +808,7 @@ class HSlider(Node):
         label_color: int = IEM_LABEL_COLOR,
         init_value: float = 0,
         steady: int = 1,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -858,7 +879,7 @@ class VRadio(Node):
         fg_color: int = IEM_FG_COLOR,
         label_color: int = IEM_LABEL_COLOR,
         init_value: int = 0,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -923,7 +944,7 @@ class HRadio(Node):
         fg_color: int = IEM_FG_COLOR,
         label_color: int = IEM_LABEL_COLOR,
         init_value: int = 0,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -989,7 +1010,7 @@ class Canvas(Node):
         font_size: int = 14,
         bg_color: int = -233017,
         label_color: int = IEM_LABEL_COLOR,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -1049,7 +1070,7 @@ class VU(Node):
         bg_color: int = IEM_BG_COLOR,
         label_color: int = IEM_LABEL_COLOR,
         scale: int = 1,
-    ):
+    ) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
@@ -1086,13 +1107,65 @@ class VU(Node):
         return (self.parameters["width"], self.parameters["height"])
 
 
+# Pd object registry: maps class names to (num_inlets, num_outlets).
+# None means variable (depends on arguments).
+PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
+    # Audio oscillators/sources
+    "osc~": (2, 1), "phasor~": (2, 1), "noise~": (0, 1), "tabosc4~": (2, 1),
+    # Audio math
+    "+~": (2, 1), "-~": (2, 1), "*~": (2, 1), "/~": (2, 1),
+    "clip~": (3, 1), "wrap~": (1, 1), "abs~": (1, 1), "sqrt~": (1, 1),
+    # Audio filters
+    "lop~": (2, 1), "hip~": (2, 1), "bp~": (3, 1), "vcf~": (3, 2),
+    # Audio I/O
+    "dac~": (2, 0), "adc~": (0, 2),
+    "line~": (1, 1), "vline~": (1, 1), "env~": (1, 1), "threshold~": (2, 2),
+    # Audio delay
+    "delwrite~": (1, 0), "delread~": (1, 1), "delread4~": (1, 1), "vd~": (1, 1),
+    # Audio tables
+    "tabread~": (1, 1), "tabread4~": (1, 1), "tabwrite~": (2, 0),
+    "tabsend~": (1, 0), "tabreceive~": (0, 1),
+    # Control math
+    "+": (2, 1), "-": (2, 1), "*": (2, 1), "/": (2, 1),
+    "mod": (2, 1), "div": (2, 1), "pow": (2, 1),
+    "abs": (1, 1), "sqrt": (1, 1), "min": (2, 1), "max": (2, 1),
+    "random": (2, 1),
+    # Control comparison
+    "==": (2, 1), "!=": (2, 1), ">": (2, 1), "<": (2, 1),
+    ">=": (2, 1), "<=": (2, 1), "&&": (2, 1), "||": (2, 1),
+    # Control routing
+    "trigger": (1, None), "t": (1, None),
+    "pack": (None, 1), "unpack": (1, None),
+    "route": (1, None), "select": (1, None), "sel": (1, None),
+    "spigot": (2, 1), "swap": (2, 2), "moses": (2, 2),
+    # Control time
+    "delay": (2, 1), "metro": (2, 1), "timer": (2, 1),
+    "pipe": (None, None), "line": (2, 1),
+    # Control data
+    "float": (2, 1), "f": (2, 1), "int": (2, 1), "i": (2, 1),
+    "symbol": (2, 1), "list": (None, 1), "value": (1, 1), "v": (1, 1),
+    # Control I/O
+    "send": (1, 0), "s": (1, 0), "receive": (0, 1), "r": (0, 1),
+    "throw~": (1, 0), "catch~": (0, 1),
+    "send~": (1, 0), "s~": (1, 0), "receive~": (0, 1), "r~": (0, 1),
+    # Misc control
+    "bang": (1, 1), "loadbang": (0, 1), "print": (1, 0),
+    "inlet": (0, 1), "outlet": (1, 0), "inlet~": (0, 1), "outlet~": (1, 0),
+    "change": (1, 1), "stripnote": (2, 2), "makenote": (3, 2),
+    "tabread": (1, 1), "tabwrite": (2, 0),
+    # MIDI
+    "notein": (0, 3), "noteout": (3, 0), "ctlin": (0, 3), "ctlout": (3, 0),
+    "bendin": (0, 2), "bendout": (2, 0), "midiin": (0, 2), "midiout": (1, 0),
+}
+
+
 class Connection:
     source: int
     outlet_index: int
     sink: int
     inlet_index: int
 
-    def __init__(self, source: int, outlet_index: int, sink: int, inlet_index: int):
+    def __init__(self, source: int, outlet_index: int, sink: int, inlet_index: int) -> None:
         self.source = source
         self.outlet_index = outlet_index
         self.sink = sink
@@ -1139,7 +1212,7 @@ class LayoutManager:
         default_margin: int = DEFAULT_MARGIN,
         row_height: int = ROW_HEIGHT,
         column_width: int = COLUMN_WIDTH,
-    ):
+    ) -> None:
         """Initialize the layout manager.
 
         Parameters
@@ -1332,7 +1405,7 @@ class GridLayoutManager(LayoutManager):
         cell_width: int = 100,
         cell_height: int = 40,
         margin: int = DEFAULT_MARGIN,
-    ):
+    ) -> None:
         super().__init__(default_margin=margin)
         self.columns = columns
         self.cell_width = cell_width
@@ -1397,7 +1470,7 @@ class Patcher:
     connections: List[Connection]
     layout: LayoutManager
 
-    def __init__(self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None):
+    def __init__(self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None) -> None:
         """Initialize a new patch.
 
         Parameters
@@ -1493,6 +1566,16 @@ class Patcher:
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Obj(x_pos, y_pos, text, num_inlets, num_outlets)
+        # Auto-fill inlet/outlet counts from registry if not explicitly given
+        if num_inlets is None or num_outlets is None:
+            text_parts = text.split()
+            class_name = text_parts[0] if text_parts else ""
+            if class_name in PD_OBJECT_REGISTRY:
+                reg_in, reg_out = PD_OBJECT_REGISTRY[class_name]
+                if num_inlets is None:
+                    node.num_inlets = reg_in
+                if num_outlets is None:
+                    node.num_outlets = reg_out
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -1629,6 +1712,18 @@ class Patcher:
             src.layout.default_margin = self.layout.default_margin
             src.layout.row_height = self.layout.row_height
             src.layout.column_width = self.layout.column_width
+
+        # Auto-infer inlet/outlet counts from inner patch objects
+        if num_inlets is None:
+            num_inlets = sum(
+                1 for n in src.nodes
+                if isinstance(n, Obj) and n.parameters["text"].split()[0] in ("inlet", "inlet~")
+            )
+        if num_outlets is None:
+            num_outlets = sum(
+                1 for n in src.nodes
+                if isinstance(n, Obj) and n.parameters["text"].split()[0] in ("outlet", "outlet~")
+            )
 
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Subpatch(
@@ -2134,17 +2229,25 @@ class Patcher:
         pos_update(node)
         return node
 
-    def link(self, source: Node, sink: Node, outlet: int = 0, inlet: int = 0) -> None:
+    def link(
+        self,
+        source: Union[Node, "Node.Outlet"],
+        sink: Node,
+        outlet: int = 0,
+        inlet: int = 0,
+    ) -> None:
         """Connect source's outlet to sink's inlet.
 
         Parameters
         ----------
-        source : Node
-            The source node (signal flows from here)
+        source : Node or Node.Outlet
+            The source node (signal flows from here). If a Node.Outlet is
+            passed, its index is used as the outlet and the owner as source.
         sink : Node
             The sink node (signal flows to here)
         outlet : int, optional
-            Index of the source's outlet (default: 0)
+            Index of the source's outlet (default: 0). Ignored if source
+            is a Node.Outlet.
         inlet : int, optional
             Index of the sink's inlet (default: 0)
 
@@ -2159,8 +2262,13 @@ class Patcher:
         >>> osc = p.add('osc~ 440')
         >>> dac = p.add('dac~')
         >>> p.link(osc, dac)           # connect osc outlet 0 -> dac inlet 0
+        >>> p.link(osc[0], dac)        # same as above using Outlet syntax
         >>> p.link(osc, dac, inlet=1)  # connect osc outlet 0 -> dac inlet 1 (stereo)
         """
+        if isinstance(source, Node.Outlet):
+            outlet = source.index
+            source = source.owner
+
         try:
             source_index = self.nodes.index(source)
         except ValueError:

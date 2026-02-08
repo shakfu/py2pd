@@ -4,13 +4,13 @@
 
 Missing IEM GUI objects in AST parser:
 
-- [ ] `PdVsl` - Vertical slider
-- [ ] `PdHsl` - Horizontal slider
-- [ ] `PdVradio` - Vertical radio buttons
-- [ ] `PdHradio` - Horizontal radio buttons
-- [ ] `PdCnv` - IEM canvas (different from graph-on-parent canvas)
-- [ ] `PdNbx` - IEM number box
-- [ ] `PdVu` - VU meter
+- [x] `PdVsl` - Vertical slider
+- [x] `PdHsl` - Horizontal slider
+- [x] `PdVradio` - Vertical radio buttons
+- [x] `PdHradio` - Horizontal radio buttons
+- [x] `PdCnv` - IEM canvas (different from graph-on-parent canvas)
+- [x] `PdNbx` - IEM number box
+- [x] `PdVu` - VU meter
 
 ## Concrete Object Support
 
@@ -136,14 +136,31 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `openpanel`, `savepanel` - File dialogs
 - [ ] `netsend`, `netreceive` - Network I/O
 
+## Bug Fixes / Correctness
+
+- [x] `to_builder()`: `PdSymbolAtom` converts to generic Obj instead of proper `Symbol` node
+- [x] `to_builder()`: `PdText` converts to `Obj("text {content}")`, loses type info on round-trip
+- [x] `_parse_canvas` subpatch detection: `not tokens[6].isdigit()` misidentifies subpatches named with numeric strings (e.g., `pd 42`)
+
 ## Features
 
+- [x] Auto-infer subpatch `num_inlets`/`num_outlets` from inner `inlet`/`outlet` objects
+- [x] Accept `Outlet` objects in `link()` (or document `__getitem__` as informational-only)
+- [x] Pd object registry: dict mapping common object names to inlet/outlet counts for validation
 - [ ] Graph-on-parent support
 - [ ] Abstractions (external .pd file references)
 - [ ] Externals discovery
 - [ ] Pd-extended / Purr Data compatibility
 - [ ] libpd integration for patch validation
 - [ ] Patch optimization (unused element removal, connection simplification)
+
+## Testing
+
+- [x] `save()` method: test with no filename (ValueError) and filename argument override
+- [x] Parser internals: direct tests for `_preprocess()` and `_split_statements()` edge cases
+- [x] Parser robustness: tests for malformed input (truncated lines, missing fields, binary data)
+- [x] `PdCoords` parsing tests
+- [x] Add `pytest-cov` for coverage reporting in CI
 
 ## Documentation
 
@@ -160,8 +177,9 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 
 ## Code Quality
 
-- [ ] Add `__all__` to `__init__.py` for explicit public API
-- [ ] Add comment explaining `get_display_lines` regex in `api.py`
-- [ ] Improve type hints for better IDE support
-- [ ] Add integration test that runs `example.py` and validates output
-- [ ] Convert `example.py` to pytest with output validation
+- [x] Add `__all__` to `__init__.py` for explicit public API
+- [x] Add comment explaining `get_display_lines` regex in `api.py`
+- [x] Improve type hints for better IDE support
+- ~~Consider renaming `Float`/`add_float()` to `FloatAtom`/`add_float_atom()` for clarity~~ (won't do: asymmetry is consistent with all other GUI types)
+- [x] Add integration test that runs `example.py` and validates output
+- [x] Convert `example.py` to pytest with output validation

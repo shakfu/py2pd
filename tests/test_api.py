@@ -26,6 +26,7 @@ from py2pd.api import (
     IEM_LABEL_COLOR,
     LINE_HEIGHT,
     MIN_ELEMENT_WIDTH,
+    PD_OBJECT_REGISTRY,
     ROW_HEIGHT,
     SUBPATCH_CANVAS_HEIGHT,
     SUBPATCH_CANVAS_WIDTH,
@@ -34,6 +35,7 @@ from py2pd.api import (
     Array,
     Bang,
     Canvas,
+    Comment,
     Connection,
     Float,
     HRadio,
@@ -1666,6 +1668,45 @@ class TestSVGExport:
         assert len(patch.connections) == 1
 
 
+class TestSave:
+    """Tests for Patcher.save() method."""
+
+    def test_save_no_filename_raises(self):
+        patch = Patcher()
+        patch.add("osc~ 440")
+        with pytest.raises(ValueError, match="No filename"):
+            patch.save()
+
+    def test_save_with_argument(self, tmp_path):
+        patch = Patcher()
+        patch.add("osc~ 440")
+        filepath = tmp_path / "test.pd"
+        patch.save(str(filepath))
+        content = filepath.read_text()
+        assert "#N canvas" in content
+        assert "osc~ 440" in content
+
+    def test_save_with_constructor_filename(self, tmp_path):
+        filepath = tmp_path / "ctor.pd"
+        patch = Patcher(str(filepath))
+        patch.add("dac~")
+        patch.save()
+        content = filepath.read_text()
+        assert "#N canvas" in content
+        assert "dac~" in content
+
+    def test_save_argument_overrides_constructor(self, tmp_path):
+        ctor_path = tmp_path / "ctor.pd"
+        arg_path = tmp_path / "arg.pd"
+        patch = Patcher(str(ctor_path))
+        patch.add("osc~ 440")
+        patch.save(str(arg_path))
+        assert arg_path.exists()
+        assert not ctor_path.exists()
+        content = arg_path.read_text()
+        assert "osc~ 440" in content
+
+
 class TestGridLayoutManager:
     """Tests for GridLayoutManager."""
 
@@ -1862,3 +1903,183 @@ class TestUnescapeDollar:
         escaped = escape(original)
         unescaped = unescape(escaped)
         assert "$1" in unescaped
+
+
+class TestComment:
+    """Tests for the Comment class."""
+
+    def test_comment_str(self):
+        c = Comment(50, 60, "hello world")
+        assert str(c) == "#X text 50 60 hello world;\n"
+
+    def test_comment_repr(self):
+        c = Comment(50, 60, "hello world")
+        assert repr(c) == "Comment(50, 60, 'hello world')"
+
+    def test_comment_no_inlets_outlets(self):
+        c = Comment(0, 0, "test")
+        assert c.num_inlets == 0
+        assert c.num_outlets == 0
+
+    def test_comment_empty_content(self):
+        c = Comment(10, 20)
+        assert c.parameters["content"] == ""
+        assert str(c) == "#X text 10 20 ;\n"
+
+
+class TestLinkWithOutlet:
+    """Tests for link() accepting Node.Outlet objects."""
+
+    def test_link_with_outlet_index_zero(self):
+        patch = Patcher()
+        osc = patch.add("osc~ 440")
+        dac = patch.add("dac~")
+        patch.link(osc[0], dac)
+        assert len(patch.connections) == 1
+        conn = patch.connections[0]
+        assert conn.source == 0
+        assert conn.outlet_index == 0
+        assert conn.sink == 1
+        assert conn.inlet_index == 0
+
+    def test_link_with_outlet_non_zero(self):
+        patch = Patcher()
+        osc = patch.add("osc~ 440")
+        dac = patch.add("dac~")
+        patch.link(osc[1], dac)
+        conn = patch.connections[0]
+        assert conn.outlet_index == 1
+
+    def test_link_outlet_with_inlet(self):
+        patch = Patcher()
+        osc = patch.add("osc~ 440")
+        dac = patch.add("dac~")
+        patch.link(osc[0], dac, inlet=1)
+        conn = patch.connections[0]
+        assert conn.outlet_index == 0
+        assert conn.inlet_index == 1
+
+    def test_link_outlet_overrides_outlet_kwarg(self):
+        """When an Outlet is passed, its index is used (outlet kwarg ignored)."""
+        patch = Patcher()
+        osc = patch.add("osc~ 440")
+        dac = patch.add("dac~")
+        patch.link(osc[2], dac, outlet=99)
+        conn = patch.connections[0]
+        assert conn.outlet_index == 2
+
+    def test_link_with_node_still_works(self):
+        """Passing a plain Node should still work as before."""
+        patch = Patcher()
+        osc = patch.add("osc~ 440")
+        dac = patch.add("dac~")
+        patch.link(osc, dac, outlet=0, inlet=1)
+        conn = patch.connections[0]
+        assert conn.outlet_index == 0
+        assert conn.inlet_index == 1
+
+
+class TestSubpatchAutoInference:
+    """Tests for auto-inferring subpatch num_inlets/num_outlets."""
+
+    def test_infer_from_inlet_outlet_objects(self):
+        inner = Patcher()
+        inner.add("inlet")
+        inner.add("outlet")
+        patch = Patcher()
+        sp = patch.add_subpatch("test", inner)
+        assert sp.num_inlets == 1
+        assert sp.num_outlets == 1
+
+    def test_infer_multiple_inlets_outlets(self):
+        inner = Patcher()
+        inner.add("inlet")
+        inner.add("inlet~")
+        inner.add("outlet")
+        inner.add("outlet~")
+        inner.add("outlet")
+        patch = Patcher()
+        sp = patch.add_subpatch("test", inner)
+        assert sp.num_inlets == 2
+        assert sp.num_outlets == 3
+
+    def test_explicit_override(self):
+        inner = Patcher()
+        inner.add("inlet")
+        inner.add("outlet")
+        patch = Patcher()
+        sp = patch.add_subpatch("test", inner, num_inlets=5, num_outlets=3)
+        assert sp.num_inlets == 5
+        assert sp.num_outlets == 3
+
+    def test_no_inlet_outlet_objects(self):
+        inner = Patcher()
+        inner.add("osc~ 440")
+        patch = Patcher()
+        sp = patch.add_subpatch("test", inner)
+        assert sp.num_inlets == 0
+        assert sp.num_outlets == 0
+
+    def test_signal_inlets_outlets(self):
+        inner = Patcher()
+        inner.add("inlet~")
+        inner.add("outlet~")
+        patch = Patcher()
+        sp = patch.add_subpatch("test", inner)
+        assert sp.num_inlets == 1
+        assert sp.num_outlets == 1
+
+
+class TestPdObjectRegistry:
+    """Tests for PD_OBJECT_REGISTRY and auto-fill in add()."""
+
+    def test_registry_lookup_osc(self):
+        patch = Patcher()
+        osc = patch.add("osc~ 440")
+        assert osc.num_inlets == 2
+        assert osc.num_outlets == 1
+
+    def test_registry_lookup_dac(self):
+        patch = Patcher()
+        dac = patch.add("dac~")
+        assert dac.num_inlets == 2
+        assert dac.num_outlets == 0
+
+    def test_registry_unknown_object(self):
+        patch = Patcher()
+        obj = patch.add("my_custom_external~")
+        assert obj.num_inlets is None
+        assert obj.num_outlets is None
+
+    def test_registry_explicit_override(self):
+        patch = Patcher()
+        osc = patch.add("osc~ 440", num_inlets=5, num_outlets=3)
+        assert osc.num_inlets == 5
+        assert osc.num_outlets == 3
+
+    def test_registry_partial_override(self):
+        """Explicit num_inlets overrides registry, num_outlets from registry."""
+        patch = Patcher()
+        osc = patch.add("osc~ 440", num_inlets=10)
+        assert osc.num_inlets == 10
+        assert osc.num_outlets == 1  # from registry
+
+    def test_registry_variable_outlets(self):
+        """Objects with None (variable) outlets keep None."""
+        patch = Patcher()
+        t = patch.add("trigger b f")
+        assert t.num_inlets == 1
+        assert t.num_outlets is None  # variable
+
+    def test_registry_control_math(self):
+        patch = Patcher()
+        plus = patch.add("+ 5")
+        assert plus.num_inlets == 2
+        assert plus.num_outlets == 1
+
+    def test_registry_has_expected_entries(self):
+        assert "osc~" in PD_OBJECT_REGISTRY
+        assert "dac~" in PD_OBJECT_REGISTRY
+        assert "loadbang" in PD_OBJECT_REGISTRY
+        assert "send" in PD_OBJECT_REGISTRY
+        assert "receive" in PD_OBJECT_REGISTRY
