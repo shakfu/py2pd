@@ -15,13 +15,14 @@ from py2pd import (
     serialize_to_file,
     to_builder,
 )
-from py2pd.api import Abstraction, Comment, Subpatch, Symbol
+from py2pd.api import Comment, Subpatch, Symbol
 from py2pd.ast import (
     CanvasProperties,
     PdArray,
     PdCnv,
     PdConnect,
     PdCoords,
+    PdDeclare,
     PdFloatAtom,
     PdHradio,
     PdHsl,
@@ -448,8 +449,6 @@ class TestBridgeFromBuilder:
         assert isinstance(ast.elements[0], PdSubpatch)
 
     def test_from_builder_with_bang(self):
-        from py2pd.api import Bang as ApiBang
-
         patch = Patcher()
         patch.add_bang(size=20, send="s1", receive="r1")
         ast = from_builder(patch)
@@ -630,8 +629,14 @@ class TestBridgeToBuilder:
 
     def test_to_builder_symbolatom(self):
         sa = PdSymbolAtom(
-            Position(10, 20), width=15, lower_limit=0, upper_limit=0,
-            label_pos=1, label="lbl", receive="r1", send="s1",
+            Position(10, 20),
+            width=15,
+            lower_limit=0,
+            upper_limit=0,
+            label_pos=1,
+            label="lbl",
+            receive="r1",
+            send="s1",
         )
         ast = PdPatch(CanvasProperties(), [sa])
         patch = to_builder(ast)
@@ -862,6 +867,7 @@ class TestPdNbx:
 
     def test_to_builder_nbx(self):
         from py2pd.api import NumberBox
+
         nbx = PdNbx(Position(10, 20), width=8, min_val=0, max_val=100)
         ast = PdPatch(CanvasProperties(), [nbx])
         patch = to_builder(ast)
@@ -885,6 +891,7 @@ class TestPdNbx:
 
     def test_nbx_roundtrip(self):
         from py2pd.api import NumberBox
+
         patch = Patcher()
         patch.add_numberbox(width=7, min_val=-5, max_val=50)
         ast = from_builder(patch)
@@ -914,6 +921,7 @@ class TestPdVsl:
 
     def test_to_builder_vsl(self):
         from py2pd.api import VSlider
+
         vsl = PdVsl(Position(10, 20), width=20, height=150)
         ast = PdPatch(CanvasProperties(), [vsl])
         patch = to_builder(ast)
@@ -924,6 +932,7 @@ class TestPdVsl:
 
     def test_vsl_roundtrip(self):
         from py2pd.api import VSlider
+
         patch = Patcher()
         patch.add_vslider(width=20, height=200, min_val=0, max_val=1000)
         ast = from_builder(patch)
@@ -952,6 +961,7 @@ class TestPdHsl:
 
     def test_to_builder_hsl(self):
         from py2pd.api import HSlider
+
         hsl = PdHsl(Position(10, 20), width=200, height=20)
         ast = PdPatch(CanvasProperties(), [hsl])
         patch = to_builder(ast)
@@ -962,6 +972,7 @@ class TestPdHsl:
 
     def test_hsl_roundtrip(self):
         from py2pd.api import HSlider
+
         patch = Patcher()
         patch.add_hslider(width=256, height=20, min_val=0, max_val=1000)
         ast = from_builder(patch)
@@ -990,6 +1001,7 @@ class TestPdVradio:
 
     def test_to_builder_vradio(self):
         from py2pd.api import VRadio
+
         vr = PdVradio(Position(10, 20), number=4)
         ast = PdPatch(CanvasProperties(), [vr])
         patch = to_builder(ast)
@@ -999,6 +1011,7 @@ class TestPdVradio:
 
     def test_vradio_roundtrip(self):
         from py2pd.api import VRadio
+
         patch = Patcher()
         patch.add_vradio(size=20, number=5)
         ast = from_builder(patch)
@@ -1027,6 +1040,7 @@ class TestPdHradio:
 
     def test_to_builder_hradio(self):
         from py2pd.api import HRadio
+
         hr = PdHradio(Position(10, 20), number=6)
         ast = PdPatch(CanvasProperties(), [hr])
         patch = to_builder(ast)
@@ -1036,6 +1050,7 @@ class TestPdHradio:
 
     def test_hradio_roundtrip(self):
         from py2pd.api import HRadio
+
         patch = Patcher()
         patch.add_hradio(size=20, number=3)
         ast = from_builder(patch)
@@ -1065,6 +1080,7 @@ class TestPdCnv:
 
     def test_to_builder_cnv(self):
         from py2pd.api import Canvas
+
         cnv = PdCnv(Position(10, 20), width=200, height=100)
         ast = PdPatch(CanvasProperties(), [cnv])
         patch = to_builder(ast)
@@ -1075,6 +1091,7 @@ class TestPdCnv:
 
     def test_cnv_roundtrip(self):
         from py2pd.api import Canvas
+
         patch = Patcher()
         patch.add_canvas(width=300, height=150, label="test_label")
         ast = from_builder(patch)
@@ -1109,6 +1126,7 @@ class TestPdVu:
 
     def test_to_builder_vu(self):
         from py2pd.api import VU
+
         vu = PdVu(Position(10, 20), width=20, height=150)
         ast = PdPatch(CanvasProperties(), [vu])
         patch = to_builder(ast)
@@ -1119,6 +1137,7 @@ class TestPdVu:
 
     def test_vu_roundtrip(self):
         from py2pd.api import VU
+
         patch = Patcher()
         patch.add_vu(width=25, height=200)
         ast = from_builder(patch)
@@ -1230,10 +1249,7 @@ class TestPdCoords:
     """Tests for PdCoords AST type."""
 
     def test_parse_with_all_fields(self):
-        content = (
-            "#N canvas 0 50 1000 600 10;\n"
-            "#X coords 0 1 1 0 200 140 1 0 0 0;"
-        )
+        content = "#N canvas 0 50 1000 600 10;\n#X coords 0 1 1 0 200 140 1 0 0 0;"
         ast = parse(content)
         elem = ast.elements[0]
         assert isinstance(elem, PdCoords)
@@ -1246,10 +1262,7 @@ class TestPdCoords:
         assert elem.graph_on_parent == 1
 
     def test_parse_with_minimal_fields(self):
-        content = (
-            "#N canvas 0 50 1000 600 10;\n"
-            "#X coords 0 1 1 0 100 80 1;"
-        )
+        content = "#N canvas 0 50 1000 600 10;\n#X coords 0 1 1 0 100 80 1;"
         ast = parse(content)
         elem = ast.elements[0]
         assert isinstance(elem, PdCoords)
@@ -1282,9 +1295,13 @@ class TestGOPBridge:
         inner.add("inlet", x_pos=50, y_pos=50)
         parent = Patcher()
         parent.add_subpatch(
-            "controls", inner,
-            graph_on_parent=True, gop_width=120, gop_height=80,
-            x_pos=100, y_pos=200,
+            "controls",
+            inner,
+            graph_on_parent=True,
+            gop_width=120,
+            gop_height=80,
+            x_pos=100,
+            y_pos=200,
         )
         ast = from_builder(parent)
         subpatch = ast.elements[0]
@@ -1302,9 +1319,12 @@ class TestGOPBridge:
         inner = Patcher()
         parent = Patcher()
         parent.add_subpatch(
-            "ui", inner,
-            graph_on_parent=True, hide_name=True,
-            x_pos=10, y_pos=20,
+            "ui",
+            inner,
+            graph_on_parent=True,
+            hide_name=True,
+            x_pos=10,
+            y_pos=20,
         )
         ast = from_builder(parent)
         subpatch = ast.elements[0]
@@ -1347,11 +1367,16 @@ class TestGOPBridge:
         inner.add("inlet", x_pos=50, y_pos=50)
         parent = Patcher()
         parent.add_subpatch(
-            "controls", inner,
-            graph_on_parent=True, hide_name=True,
-            gop_width=200, gop_height=150,
-            canvas_width=500, canvas_height=400,
-            x_pos=100, y_pos=200,
+            "controls",
+            inner,
+            graph_on_parent=True,
+            hide_name=True,
+            gop_width=200,
+            gop_height=150,
+            canvas_width=500,
+            canvas_height=400,
+            x_pos=100,
+            y_pos=200,
         )
         # builder -> AST -> builder
         ast = from_builder(parent)
@@ -1369,9 +1394,12 @@ class TestGOPBridge:
         inner = Patcher()
         parent = Patcher()
         parent.add_subpatch(
-            "test", inner,
-            canvas_width=600, canvas_height=450,
-            x_pos=10, y_pos=20,
+            "test",
+            inner,
+            canvas_width=600,
+            canvas_height=450,
+            x_pos=10,
+            y_pos=20,
         )
         ast = from_builder(parent)
         subpatch = ast.elements[0]
@@ -1418,5 +1446,83 @@ class TestAbstractionBridge:
         assert len(rebuilt.nodes) == 1
         # Should come back as Obj, not Abstraction
         from py2pd.api import Obj
+
         assert type(rebuilt.nodes[0]) is Obj
         assert rebuilt.nodes[0].parameters["text"] == "my-synth 440"
+
+
+class TestPdDeclare:
+    """Tests for PdDeclare AST type."""
+
+    def test_declare_str(self):
+        d = PdDeclare(paths=("/foo", "/bar"), libs=("gem",))
+        assert str(d) == "#X declare -path /foo -path /bar -lib gem;"
+
+    def test_declare_str_empty(self):
+        d = PdDeclare()
+        assert str(d) == "#X declare;"
+
+    def test_declare_str_stdpath_stdlib(self):
+        d = PdDeclare(stdpath=True, stdlib=True)
+        assert str(d) == "#X declare -stdpath -stdlib;"
+
+    def test_parse_declare(self):
+        content = "#N canvas 0 50 1000 600 10;\n#X declare -path /foo -lib gem;"
+        patch = parse(content)
+        assert len(patch.elements) == 1
+        elem = patch.elements[0]
+        assert isinstance(elem, PdDeclare)
+        assert elem.paths == ("/foo",)
+        assert elem.libs == ("gem",)
+        assert elem.stdpath is False
+        assert elem.stdlib is False
+
+    def test_parse_declare_stdpath(self):
+        content = "#N canvas 0 50 1000 600 10;\n#X declare -stdpath;"
+        patch = parse(content)
+        elem = patch.elements[0]
+        assert isinstance(elem, PdDeclare)
+        assert elem.stdpath is True
+        assert elem.paths == ()
+
+    def test_declare_roundtrip(self):
+        content = "#N canvas 0 50 1000 600 10;\n#X declare -path /foo -lib gem -stdpath;"
+        ast = parse(content)
+        result = serialize(ast)
+        ast2 = parse(result)
+        elem = ast2.elements[0]
+        assert isinstance(elem, PdDeclare)
+        assert elem.paths == ("/foo",)
+        assert elem.libs == ("gem",)
+        assert elem.stdpath is True
+
+    def test_declare_in_patch(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n#X declare -path /externals;\n#X obj 50 50 osc~ 440;"
+        )
+        patch = parse(content)
+        assert len(patch.elements) == 2
+        assert isinstance(patch.elements[0], PdDeclare)
+        assert isinstance(patch.elements[1], PdObj)
+
+    def test_declare_to_builder_skipped(self):
+        content = (
+            "#N canvas 0 50 1000 600 10;\n"
+            "#X declare -path /externals;\n"
+            "#X obj 50 50 osc~ 440;\n"
+            "#X obj 50 100 dac~;\n"
+            "#X connect 0 0 1 0;"
+        )
+        ast = parse(content)
+        patch = to_builder(ast)
+        # declare is skipped, but two objects should exist
+        assert len(patch.nodes) == 2
+        # connection should still work (indices are object-based, declare is not an object)
+        assert len(patch.connections) == 1
+
+    def test_declare_multiple_paths(self):
+        content = "#N canvas 0 50 1000 600 10;\n#X declare -path /a -path /b -path /c;"
+        patch = parse(content)
+        elem = patch.elements[0]
+        assert isinstance(elem, PdDeclare)
+        assert elem.paths == ("/a", "/b", "/c")

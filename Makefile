@@ -1,4 +1,5 @@
-.PHONY: test lint format typecheck build check publish publish-test clean
+.PHONY: test lint format typecheck build check publish publish-test \
+		clean docs qa
 
 test:
 	@uv run pytest tests/ -v
@@ -11,6 +12,8 @@ format:
 
 typecheck:
 	@uv run mypy src/
+
+qa: test lint typecheck format
 
 build:
 	@rm -rf dist/
@@ -26,7 +29,10 @@ publish-test:
 publish:
 	@uv run twine upload dist/*
 
+docs:
+	@cd docs && uv run --group docs make html
+
 clean:
-	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/
+	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/ docs/_build/
 	@find . -name "*.pyc" -delete
 	@find . -name "__pycache__" -type d -delete

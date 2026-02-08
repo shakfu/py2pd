@@ -23,9 +23,6 @@ AST API example (round-trip):
 
 # Builder API
 from .api import (
-    Abstraction as Abstraction,
-)
-from .api import (
     COLUMN_WIDTH as COLUMN_WIDTH,
 )
 from .api import (
@@ -42,7 +39,7 @@ from .api import (
     SUBPATCH_CANVAS_WIDTH as SUBPATCH_CANVAS_WIDTH,
 )
 from .api import (
-    PdConnectionError as PdConnectionError,
+    Abstraction as Abstraction,
 )
 from .api import (
     CycleWarning as CycleWarning,
@@ -61,6 +58,9 @@ from .api import (
 )
 from .api import (
     Patcher as Patcher,
+)
+from .api import (
+    PdConnectionError as PdConnectionError,
 )
 from .ast import (
     ParseError as ParseError,
@@ -84,6 +84,15 @@ from .ast import (
 )
 from .ast import (
     to_builder as to_builder,
+)
+from .discover import (
+    default_search_paths as default_search_paths,
+)
+from .discover import (
+    discover_externals as discover_externals,
+)
+from .discover import (
+    extract_declare_paths as extract_declare_paths,
 )
 
 __all__ = [
@@ -111,6 +120,10 @@ __all__ = [
     "serialize_to_file",
     "from_builder",
     "to_builder",
+    # Discovery
+    "discover_externals",
+    "default_search_paths",
+    "extract_declare_paths",
 ]
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

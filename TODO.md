@@ -149,9 +149,10 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [x] Pd object registry: dict mapping common object names to inlet/outlet counts for validation
 - [x] Graph-on-parent support
 - [x] Abstractions (external .pd file references)
-- [ ] Externals discovery
+- [x] Externals discovery
 - [ ] Pd-extended / Purr Data compatibility
-- [ ] libpd integration for patch validation
+- [x] libpd integration for patch validation
+- [x] hvcc (Heavy Compiler Collection) integration
 - [ ] Patch optimization (unused element removal, connection simplification)
 
 ## Testing
@@ -164,11 +165,11 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 
 ## Documentation
 
-- [ ] API Reference
-  - [ ] All parameters and their valid ranges
-  - [ ] Outlet indices meaning for different object types
-  - [ ] PureData format details
-  - [ ] Error conditions and how to handle them
+- [x] API Reference
+  - [x] All parameters and their valid ranges
+  - [x] Outlet indices meaning for different object types
+  - [x] PureData format details
+  - [x] Error conditions and how to handle them
 - [ ] Architecture Documentation
   - [ ] Class diagrams
   - [ ] Data flow explanations

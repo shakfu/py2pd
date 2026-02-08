@@ -3,8 +3,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add the examples directory to the path so we can import example.py
 sys.path.insert(0, str(Path(__file__).parent / "examples"))
 
@@ -120,7 +118,6 @@ class TestExampleAutoLayout:
     def test_layout_applied(self):
         patch = auto_layout_demo()
         # After auto_layout, sources should be above sinks
-        positions = {str(n): n.position for n in patch.nodes}
         # osc nodes should be above gain nodes which should be above mixer/dac
         osc_y = min(n.position[1] for n in patch.nodes if "osc~" in str(n))
         dac_y = max(n.position[1] for n in patch.nodes if "dac~" in str(n))

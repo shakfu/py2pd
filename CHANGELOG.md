@@ -7,8 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2]
+
 ### Added
 
+- **Patch optimization** (`Patcher.optimize()`):
+  - `optimize()` method removes unused elements and simplifies connections in three passes: (1) deduplicate exact-duplicate patch cords, (2) collapse pass-through nodes (opt-in via `collapsible_objects`), (3) remove disconnected `Obj` nodes that are not protected types and have no active send/receive.
+  - Protected types (GUI, Comment, Subpatch, Abstraction, Array, Msg, Float) are never removed.
+  - `recursive=True` optimizes inner subpatches first.
+  - Returns stats dict: `nodes_removed`, `connections_removed`, `duplicates_removed`, `pass_throughs_collapsed`, `subpatches_optimized`.
+  - Uses index-remapping rebuild approach to maintain connection integrity after node removal.
+  - Module-level helpers: `_PROTECTED_TYPES`, `_SEND_RECEIVE_INACTIVE`, `_has_active_send_receive()`.
+- Tests for optimize (36 tests: helpers, unused removal, protected type preservation, send/receive preservation, index remapping, serialization, duplicate removal, pass-through collapse, idempotency, combined operations, recursive subpatch, edge cases)
+- **`py2pd.integrations` subpackage**: Moved `validate.py` and `hvcc.py` into `py2pd/integrations/` as `cypd.py` and `hvcc.py` respectively. Integration symbols are no longer re-exported from `py2pd.__init__`; import from `py2pd.integrations.cypd` or `py2pd.integrations.hvcc` (or from `py2pd.integrations` which re-exports both).
+- **hvcc integration** (`integrations/hvcc.py`, was `hvcc.py`):
+  - `HeavyPatcher` -- `Patcher` subclass that enforces hvcc-supported objects at `add()` time. Provides `add_param()`, `add_param_output()`, `add_event()`, `add_table()` for hvcc annotations (`@hv_param`, `@hv_event`, `@hv_table`).
+  - `validate_for_hvcc()` -- standalone validation of any `Patcher` or `PdPatch` against the hvcc object subset (~163 objects). Recurses into subpatches. Optional generator-specific MIDI validation.
+  - `compile_hvcc()` -- serialize to tempfile and shell out to the `hvcc` CLI. Supports all generators (C, DPF, Daisy, JS, OWL, pdext, Unity, Wwise).
+  - `HVCC_SUPPORTED_OBJECTS` -- complete registry of ~163 hvcc-supported Pd objects.
+  - `HvccGenerator` enum, `HvccValidationResult`/`HvccCompileResult` dataclasses, `HvccError`/`HvccUnsupportedError`/`HvccCompileError` exceptions.
+  - `hvcc` is an optional dependency (`pip install py2pd[hvcc]`); authoring and validation work without it.
+- Tests for hvcc module (registry, validation, HeavyPatcher, annotations, compile unit tests; integration tests skip if hvcc not installed)
+- **Patch validation via libpd** (`integrations/cypd.py`, was `validate.py`):
+  - `validate_patch()` -- loads a patch in libpd (via optional `cypd` dependency) and captures print output to detect missing objects, unresolved externals, and other errors. Accepts both `Patcher` and `PdPatch` inputs. Configurable search paths, declare-path extraction, and receiver existence checking.
+  - `ValidationResult` dataclass -- `ok`, `errors`, `warnings`, `log` fields.
+  - `cypd` is an optional dependency (`pip install py2pd[validate]`); py2pd works fine without it.
+- Tests for validation module (unit tests run without cypd; integration tests skip if cypd is not installed)
+- **`PdDeclare` AST node**: Parse and serialize `#X declare -path ... -lib ... -stdpath -stdlib` statements. Skipped silently in `to_builder()` (no builder equivalent). Does not affect object indexing for connections.
+- **Externals discovery** (`discover.py` module):
+  - `discover_externals()` -- scan filesystem paths for `.pd` abstractions (with inferred I/O counts) and compiled binary externals (platform-aware: `.pd_darwin`, `.pd_linux`, `.dll`, etc.). First-found-wins semantics.
+  - `default_search_paths()` -- returns platform-appropriate PureData search paths (macOS, Linux, Windows) that exist on disk.
+  - `extract_declare_paths()` -- recursively walks a parsed patch collecting all `-path` values from `PdDeclare` nodes.
+- Tests for `PdDeclare` (serialization, parsing, roundtrip, bridge, multiple paths)
+- Tests for discovery module (default paths, abstraction/binary/mixed discovery, first-found-wins, edge cases, declare path extraction)
 - **Graph-on-Parent (GOP)**: `add_subpatch()` and `Subpatch` now support `graph_on_parent`, `hide_name`, `gop_width`, `gop_height` parameters. Emits `#X coords` line in output. Round-trips through `from_builder()`/`to_builder()`.
 - **Abstractions**: `Abstraction` class and `add_abstraction()` method for referencing external `.pd` files. Supports manual or auto-inferred inlet/outlet counts via `source_path`. Serializes as standard `#X obj`.
 - `_infer_abstraction_io()` helper to count inlets/outlets from a `.pd` file
@@ -38,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `from_builder()` now uses dedicated handlers for all 10 GUI types instead of falling through to `PdObj`
 - `to_builder()` now uses proper constructors for all GUI types instead of string-stripping hacks
 - `_parse_canvas()` subpatch detection uses `len(tokens) >= 8` instead of `not tokens[6].isdigit()`, fixing numeric subpatch names (e.g. `pd 42`)
-- Test count increased from 335 to 372
+- Test count increased from 335 to 422
 
 ## [0.1.1]
 

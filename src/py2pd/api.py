@@ -55,6 +55,22 @@ def escape(text: str) -> str:
 
 
 def unescape(text: str) -> str:
+    """Unescape PureData format back to display text.
+
+    Reverses the escaping done by ``escape()``: converts escaped semicolons
+    back to newlines, escaped commas back to commas, and escaped dollar signs
+    back to plain dollar signs.
+
+    Parameters
+    ----------
+    text : str
+        PureData-escaped text
+
+    Returns
+    -------
+    str
+        Human-readable display text
+    """
     disp = re.sub(r" (?<!\\)\\; ", "\n", text)
     disp = re.sub(r" (?<!\\)\\, ", ",", disp)
     disp = re.sub(r"(?<!\\)\\\$", "$", disp)
@@ -151,6 +167,27 @@ class Node:
 
 
 class Obj(Node):
+    """A generic PureData object box (``#X obj``).
+
+    Represents any object created with ``#X obj`` in PureData, such as
+    ``osc~ 440``, ``+~``, ``dac~``, etc. The object's class and arguments
+    are stored as a single text string.
+
+    Parameters
+    ----------
+    x_pos : int
+        X position in patch coordinates
+    y_pos : int
+        Y position in patch coordinates
+    text : str
+        Object text (e.g., ``'osc~ 440'``). Will be escaped for the
+        PureData file format.
+    num_inlets : int, optional
+        Number of inlets for connection validation
+    num_outlets : int, optional
+        Number of outlets for connection validation
+    """
+
     parameters: Dict[str, Any]
 
     def __init__(
@@ -183,6 +220,26 @@ class Obj(Node):
 
 
 class Msg(Node):
+    """A message box (``#X msg``).
+
+    Message boxes in PureData send their contents when clicked or when
+    they receive a bang. They can contain literal values, comma-separated
+    sequences, and ``$`` argument substitutions.
+
+    Parameters
+    ----------
+    x_pos : int
+        X position in patch coordinates
+    y_pos : int
+        Y position in patch coordinates
+    text : str
+        Message content. Will be escaped for the PureData file format.
+    num_inlets : int, optional
+        Number of inlets (default: 1)
+    num_outlets : int, optional
+        Number of outlets (default: 1)
+    """
+
     def __init__(
         self,
         x_pos: int,
@@ -213,6 +270,32 @@ class Msg(Node):
 
 
 class Float(Node):
+    """A number box (``#X floatatom``).
+
+    Displays and edits a single floating-point value. Simpler than
+    the IEM ``NumberBox`` (nbx) -- does not support logarithmic scaling
+    or advanced styling.
+
+    Parameters
+    ----------
+    x_pos : int
+        X position in patch coordinates
+    y_pos : int
+        Y position in patch coordinates
+    width : int
+        Display width in characters (default: 5)
+    upper_limit : int
+        Maximum value; 0 means no limit (default: 0)
+    lower_limit : int
+        Minimum value; 0 means no limit (default: 0)
+    label : str
+        Label text (default: ``'-'`` for none)
+    receive : str
+        Receive symbol for wireless input (default: ``'-'`` for none)
+    send : str
+        Send symbol for wireless output (default: ``'-'`` for none)
+    """
+
     def __init__(
         self,
         x_pos: int,
@@ -403,8 +486,7 @@ class Subpatch(Node):
         if p["graph_on_parent"]:
             hide_flag = int(p["hide_name"])
             coords_line = (
-                f"#X coords 0 1 1 0 {p['gop_width']} {p['gop_height']} "
-                f"1 {hide_flag} 0 0;\n"
+                f"#X coords 0 1 1 0 {p['gop_width']} {p['gop_height']} 1 {hide_flag} 0 0;\n"
             )
         return (
             f"#N canvas 0 0 {self.canvas_width} {self.canvas_height} (subpatch) 0;\n"
@@ -487,7 +569,27 @@ def _infer_abstraction_io(path: str) -> Tuple[int, int]:
 
 
 class Array(Node):
-    def __init__(self, name: str, length: int, element_type: str = "float", save_flag: int = 0) -> None:
+    """A data array (``#X array``).
+
+    Arrays store sequences of numeric data, typically used for wavetables,
+    sample buffers, or lookup tables. They are hidden nodes (not displayed
+    in the patch canvas) and have no inlets or outlets.
+
+    Parameters
+    ----------
+    name : str
+        Array name (used to reference the array from other objects)
+    length : int
+        Number of elements
+    element_type : str
+        Data type (default: ``'float'``)
+    save_flag : int
+        If 1, save array contents with the patch (default: 0)
+    """
+
+    def __init__(
+        self, name: str, length: int, element_type: str = "float", save_flag: int = 0
+    ) -> None:
         self.hidden = True
         self.parameters = {
             "name": name,
@@ -1203,55 +1305,181 @@ class VU(Node):
 # None means variable (depends on arguments).
 PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     # Audio oscillators/sources
-    "osc~": (2, 1), "phasor~": (2, 1), "noise~": (0, 1), "tabosc4~": (2, 1),
+    "osc~": (2, 1),
+    "phasor~": (2, 1),
+    "noise~": (0, 1),
+    "tabosc4~": (2, 1),
     # Audio math
-    "+~": (2, 1), "-~": (2, 1), "*~": (2, 1), "/~": (2, 1),
-    "clip~": (3, 1), "wrap~": (1, 1), "abs~": (1, 1), "sqrt~": (1, 1),
+    "+~": (2, 1),
+    "-~": (2, 1),
+    "*~": (2, 1),
+    "/~": (2, 1),
+    "clip~": (3, 1),
+    "wrap~": (1, 1),
+    "abs~": (1, 1),
+    "sqrt~": (1, 1),
     # Audio filters
-    "lop~": (2, 1), "hip~": (2, 1), "bp~": (3, 1), "vcf~": (3, 2),
+    "lop~": (2, 1),
+    "hip~": (2, 1),
+    "bp~": (3, 1),
+    "vcf~": (3, 2),
     # Audio I/O
-    "dac~": (2, 0), "adc~": (0, 2),
-    "line~": (1, 1), "vline~": (1, 1), "env~": (1, 1), "threshold~": (2, 2),
+    "dac~": (2, 0),
+    "adc~": (0, 2),
+    "line~": (1, 1),
+    "vline~": (1, 1),
+    "env~": (1, 1),
+    "threshold~": (2, 2),
     # Audio delay
-    "delwrite~": (1, 0), "delread~": (1, 1), "delread4~": (1, 1), "vd~": (1, 1),
+    "delwrite~": (1, 0),
+    "delread~": (1, 1),
+    "delread4~": (1, 1),
+    "vd~": (1, 1),
     # Audio tables
-    "tabread~": (1, 1), "tabread4~": (1, 1), "tabwrite~": (2, 0),
-    "tabsend~": (1, 0), "tabreceive~": (0, 1),
+    "tabread~": (1, 1),
+    "tabread4~": (1, 1),
+    "tabwrite~": (2, 0),
+    "tabsend~": (1, 0),
+    "tabreceive~": (0, 1),
     # Control math
-    "+": (2, 1), "-": (2, 1), "*": (2, 1), "/": (2, 1),
-    "mod": (2, 1), "div": (2, 1), "pow": (2, 1),
-    "abs": (1, 1), "sqrt": (1, 1), "min": (2, 1), "max": (2, 1),
+    "+": (2, 1),
+    "-": (2, 1),
+    "*": (2, 1),
+    "/": (2, 1),
+    "mod": (2, 1),
+    "div": (2, 1),
+    "pow": (2, 1),
+    "abs": (1, 1),
+    "sqrt": (1, 1),
+    "min": (2, 1),
+    "max": (2, 1),
     "random": (2, 1),
     # Control comparison
-    "==": (2, 1), "!=": (2, 1), ">": (2, 1), "<": (2, 1),
-    ">=": (2, 1), "<=": (2, 1), "&&": (2, 1), "||": (2, 1),
+    "==": (2, 1),
+    "!=": (2, 1),
+    ">": (2, 1),
+    "<": (2, 1),
+    ">=": (2, 1),
+    "<=": (2, 1),
+    "&&": (2, 1),
+    "||": (2, 1),
     # Control routing
-    "trigger": (1, None), "t": (1, None),
-    "pack": (None, 1), "unpack": (1, None),
-    "route": (1, None), "select": (1, None), "sel": (1, None),
-    "spigot": (2, 1), "swap": (2, 2), "moses": (2, 2),
+    "trigger": (1, None),
+    "t": (1, None),
+    "pack": (None, 1),
+    "unpack": (1, None),
+    "route": (1, None),
+    "select": (1, None),
+    "sel": (1, None),
+    "spigot": (2, 1),
+    "swap": (2, 2),
+    "moses": (2, 2),
     # Control time
-    "delay": (2, 1), "metro": (2, 1), "timer": (2, 1),
-    "pipe": (None, None), "line": (2, 1),
+    "delay": (2, 1),
+    "metro": (2, 1),
+    "timer": (2, 1),
+    "pipe": (None, None),
+    "line": (2, 1),
     # Control data
-    "float": (2, 1), "f": (2, 1), "int": (2, 1), "i": (2, 1),
-    "symbol": (2, 1), "list": (None, 1), "value": (1, 1), "v": (1, 1),
+    "float": (2, 1),
+    "f": (2, 1),
+    "int": (2, 1),
+    "i": (2, 1),
+    "symbol": (2, 1),
+    "list": (None, 1),
+    "value": (1, 1),
+    "v": (1, 1),
     # Control I/O
-    "send": (1, 0), "s": (1, 0), "receive": (0, 1), "r": (0, 1),
-    "throw~": (1, 0), "catch~": (0, 1),
-    "send~": (1, 0), "s~": (1, 0), "receive~": (0, 1), "r~": (0, 1),
+    "send": (1, 0),
+    "s": (1, 0),
+    "receive": (0, 1),
+    "r": (0, 1),
+    "throw~": (1, 0),
+    "catch~": (0, 1),
+    "send~": (1, 0),
+    "s~": (1, 0),
+    "receive~": (0, 1),
+    "r~": (0, 1),
     # Misc control
-    "bang": (1, 1), "loadbang": (0, 1), "print": (1, 0),
-    "inlet": (0, 1), "outlet": (1, 0), "inlet~": (0, 1), "outlet~": (1, 0),
-    "change": (1, 1), "stripnote": (2, 2), "makenote": (3, 2),
-    "tabread": (1, 1), "tabwrite": (2, 0),
+    "bang": (1, 1),
+    "loadbang": (0, 1),
+    "print": (1, 0),
+    "inlet": (0, 1),
+    "outlet": (1, 0),
+    "inlet~": (0, 1),
+    "outlet~": (1, 0),
+    "change": (1, 1),
+    "stripnote": (2, 2),
+    "makenote": (3, 2),
+    "tabread": (1, 1),
+    "tabwrite": (2, 0),
     # MIDI
-    "notein": (0, 3), "noteout": (3, 0), "ctlin": (0, 3), "ctlout": (3, 0),
-    "bendin": (0, 2), "bendout": (2, 0), "midiin": (0, 2), "midiout": (1, 0),
+    "notein": (0, 3),
+    "noteout": (3, 0),
+    "ctlin": (0, 3),
+    "ctlout": (3, 0),
+    "bendin": (0, 2),
+    "bendout": (2, 0),
+    "midiin": (0, 2),
+    "midiout": (1, 0),
 }
 
 
+# Types that are never removed by optimize() -- they either have side effects
+# (send/receive, loadbang), carry user-visible information (Comment, Msg, GUI),
+# or encapsulate sub-graphs that may use wireless connections internally.
+_PROTECTED_TYPES = (
+    Comment,
+    Subpatch,
+    Abstraction,
+    Array,
+    Msg,
+    Bang,
+    Toggle,
+    Symbol,
+    NumberBox,
+    VSlider,
+    HSlider,
+    VRadio,
+    HRadio,
+    Canvas,
+    VU,
+    Float,
+)
+
+# Default/inactive values for send/receive parameters across Pd object types.
+_SEND_RECEIVE_INACTIVE = frozenset({"empty", "-", ""})
+
+
+def _has_active_send_receive(node: Node) -> bool:
+    """Return True if *node* has a send or receive parameter set to a non-default value."""
+    params = node.parameters
+    for key in ("send", "receive"):
+        val = params.get(key)
+        if val is not None and val not in _SEND_RECEIVE_INACTIVE:
+            return True
+    return False
+
+
 class Connection:
+    """A connection (patch cord) between two nodes.
+
+    Connections are stored as index-based references into the parent
+    patch's node list. They map directly to ``#X connect`` lines in
+    the PureData file format.
+
+    Parameters
+    ----------
+    source : int
+        Index of the source node in the patch's node list
+    outlet_index : int
+        Outlet index on the source node (0-based)
+    sink : int
+        Index of the sink node in the patch's node list
+    inlet_index : int
+        Inlet index on the sink node (0-based)
+    """
+
     source: int
     outlet_index: int
     sink: int
@@ -1562,7 +1790,9 @@ class Patcher:
     connections: List[Connection]
     layout: LayoutManager
 
-    def __init__(self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None) -> None:
+    def __init__(
+        self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None
+    ) -> None:
         """Initialize a new patch.
 
         Parameters
@@ -1826,12 +2056,14 @@ class Patcher:
         # Auto-infer inlet/outlet counts from inner patch objects
         if num_inlets is None:
             num_inlets = sum(
-                1 for n in src.nodes
+                1
+                for n in src.nodes
                 if isinstance(n, Obj) and n.parameters["text"].split()[0] in ("inlet", "inlet~")
             )
         if num_outlets is None:
             num_outlets = sum(
-                1 for n in src.nodes
+                1
+                for n in src.nodes
                 if isinstance(n, Obj) and n.parameters["text"].split()[0] in ("outlet", "outlet~")
             )
 
@@ -1903,7 +2135,10 @@ class Patcher:
 
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Abstraction(
-            x_pos, y_pos, name, *args,
+            x_pos,
+            y_pos,
+            name,
+            *args,
             num_inlets=num_inlets if num_inlets is not None else 0,
             num_outlets=num_outlets if num_outlets is not None else 0,
         )
@@ -2883,6 +3118,176 @@ class Patcher:
         """
         with open(filename, "w") as f:
             f.write(self.to_svg(**kwargs))
+
+    def _remap_after_removal(self, indices_to_remove: Set[int]) -> None:
+        """Rebuild node and connection lists after removing nodes at *indices_to_remove*.
+
+        Connections that reference any removed node are dropped. Surviving
+        connections have their source/sink indices remapped to match the
+        compacted node list. The layout state is reset because row_head/row_tail
+        may reference removed nodes.
+        """
+        if not indices_to_remove:
+            return
+
+        # Build old -> new index mapping
+        old_to_new: Dict[int, int] = {}
+        new_idx = 0
+        for old_idx in range(len(self.nodes)):
+            if old_idx not in indices_to_remove:
+                old_to_new[old_idx] = new_idx
+                new_idx += 1
+
+        # Rebuild nodes
+        self.nodes = [n for i, n in enumerate(self.nodes) if i not in indices_to_remove]
+
+        # Filter and remap connections
+        new_connections: List[Connection] = []
+        for conn in self.connections:
+            if conn.source in indices_to_remove or conn.sink in indices_to_remove:
+                continue
+            new_connections.append(
+                Connection(
+                    old_to_new[conn.source],
+                    conn.outlet_index,
+                    old_to_new[conn.sink],
+                    conn.inlet_index,
+                )
+            )
+        self.connections = new_connections
+
+        # Layout anchors may reference removed nodes
+        self.layout.reset()
+
+    def optimize(
+        self,
+        *,
+        recursive: bool = False,
+        collapsible_objects: frozenset = frozenset(),
+    ) -> Dict[str, int]:
+        """Remove unused elements and simplify connections.
+
+        Runs three passes in order:
+
+        1. **Deduplicate connections** -- drop exact-duplicate patch cords.
+        2. **Pass-through collapse** -- for each ``Obj`` node whose class name
+           is in *collapsible_objects*, that has exactly 1 inlet, 1 outlet,
+           no creation arguments, and exactly 1 incoming + 1 outgoing
+           connection: replace the two connections with a single direct one and
+           remove the intermediate node. The caller must ensure that collapsing
+           the intermediate node does not change message semantics.
+        3. **Unused element removal** -- remove ``Obj`` nodes that have no
+           connections and are not protected types (GUI, Comment, Subpatch,
+           Abstraction, Array, Msg, Float) and do not have active send/receive
+           parameters.
+
+        Parameters
+        ----------
+        recursive : bool
+            If True, call ``optimize()`` on the inner patch of every
+            ``Subpatch`` node first (default: False).
+        collapsible_objects : frozenset of str
+            Set of Pd class names eligible for pass-through collapse
+            (default: empty -- no collapse unless opt-in).
+
+        Returns
+        -------
+        dict with str keys and int values
+            ``nodes_removed``, ``connections_removed``, ``duplicates_removed``,
+            ``pass_throughs_collapsed``, ``subpatches_optimized``.
+        """
+        stats: Dict[str, int] = {
+            "nodes_removed": 0,
+            "connections_removed": 0,
+            "duplicates_removed": 0,
+            "pass_throughs_collapsed": 0,
+            "subpatches_optimized": 0,
+        }
+
+        # --- Recursive pass ---
+        if recursive:
+            for node in self.nodes:
+                if isinstance(node, Subpatch):
+                    node.src.optimize(
+                        recursive=True,
+                        collapsible_objects=collapsible_objects,
+                    )
+                    stats["subpatches_optimized"] += 1
+
+        initial_connection_count = len(self.connections)
+
+        # --- Pass 1: Deduplicate connections ---
+        seen: Set[Tuple[int, int, int, int]] = set()
+        deduped: List[Connection] = []
+        for conn in self.connections:
+            key = (conn.source, conn.outlet_index, conn.sink, conn.inlet_index)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(conn)
+        stats["duplicates_removed"] = len(self.connections) - len(deduped)
+        self.connections = deduped
+
+        # --- Pass 2: Pass-through collapse ---
+        removal_set: Set[int] = set()
+        if collapsible_objects:
+            for idx, node in enumerate(self.nodes):
+                if not isinstance(node, Obj):
+                    continue
+                text_parts = node.parameters["text"].split()
+                class_name = text_parts[0] if text_parts else ""
+                if class_name not in collapsible_objects:
+                    continue
+                # Must have no creation args
+                if len(text_parts) > 1:
+                    continue
+                # Must have exactly 1 inlet and 1 outlet
+                if node.num_inlets != 1 or node.num_outlets != 1:
+                    continue
+                # Find incoming and outgoing connections
+                incoming = [c for c in self.connections if c.sink == idx]
+                outgoing = [c for c in self.connections if c.source == idx]
+                if len(incoming) != 1 or len(outgoing) != 1:
+                    continue
+                # Bypass: connect predecessor directly to successor
+                inc = incoming[0]
+                out = outgoing[0]
+                self.connections.append(
+                    Connection(inc.source, inc.outlet_index, out.sink, out.inlet_index)
+                )
+                # Remove the two old connections
+                self.connections.remove(inc)
+                self.connections.remove(out)
+                removal_set.add(idx)
+                stats["pass_throughs_collapsed"] += 1
+
+        # --- Pass 3: Unused element removal ---
+        connected_nodes: Set[int] = set()
+        for conn in self.connections:
+            connected_nodes.add(conn.source)
+            connected_nodes.add(conn.sink)
+
+        for idx, node in enumerate(self.nodes):
+            if idx in connected_nodes:
+                continue
+            if idx in removal_set:
+                continue
+            if isinstance(node, _PROTECTED_TYPES):
+                continue
+            if _has_active_send_receive(node):
+                continue
+            removal_set.add(idx)
+
+        stats["nodes_removed"] = len(removal_set)
+        stats["connections_removed"] = (
+            initial_connection_count - len(self.connections) + stats["duplicates_removed"]
+        )
+
+        self._remap_after_removal(removal_set)
+
+        # Recount connections_removed after remap (some may have been dropped)
+        stats["connections_removed"] = initial_connection_count - len(self.connections)
+
+        return stats
 
     def auto_layout(
         self,

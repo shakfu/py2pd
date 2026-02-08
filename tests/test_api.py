@@ -9,10 +9,12 @@ from py2pd import (
     InvalidConnectionError,
     LayoutManager,
     NodeNotFoundError,
-    PdConnectionError,
     Patcher,
+    PdConnectionError,
 )
 from py2pd.api import (
+    _PROTECTED_TYPES,
+    _SEND_RECEIVE_INACTIVE,
     CHAR_WIDTH,
     COLUMN_WIDTH,
     DEFAULT_MARGIN,
@@ -50,6 +52,7 @@ from py2pd.api import (
     Toggle,
     VRadio,
     VSlider,
+    _has_active_send_receive,
     _infer_abstraction_io,
     escape,
     get_display_lines,
@@ -963,7 +966,7 @@ class TestExceptionTypes:
         assert issubclass(NodeNotFoundError, ValueError)
 
     def test_exceptions_exportable(self):
-        from py2pd import PdConnectionError, NodeNotFoundError
+        from py2pd import NodeNotFoundError, PdConnectionError
 
         assert PdConnectionError is not None
         assert NodeNotFoundError is not None
@@ -2103,8 +2106,11 @@ class TestGOP:
         inner = Patcher()
         parent = Patcher()
         sp = parent.add_subpatch(
-            "controls", inner,
-            graph_on_parent=True, gop_width=120, gop_height=80,
+            "controls",
+            inner,
+            graph_on_parent=True,
+            gop_width=120,
+            gop_height=80,
         )
         assert sp.dimensions == (120, 80)
 
@@ -2112,8 +2118,10 @@ class TestGOP:
         inner = Patcher()
         parent = Patcher()
         sp = parent.add_subpatch(
-            "controls", inner,
-            graph_on_parent=True, hide_name=True,
+            "controls",
+            inner,
+            graph_on_parent=True,
+            hide_name=True,
         )
         output = str(sp)
         assert "#X coords 0 1 1 0 85 60 1 1 0 0;" in output
@@ -2140,8 +2148,11 @@ class TestGOP:
         inner = Patcher()
         parent = Patcher()
         sp = parent.add_subpatch(
-            "ui", inner,
-            graph_on_parent=True, gop_width=200, gop_height=150,
+            "ui",
+            inner,
+            graph_on_parent=True,
+            gop_width=200,
+            gop_height=150,
         )
         output = str(sp)
         assert "#X coords 0 1 1 0 200 150 1 0 0 0;" in output
@@ -2150,8 +2161,10 @@ class TestGOP:
         inner = Patcher()
         parent = Patcher()
         sp = parent.add_subpatch(
-            "ui", inner,
-            canvas_width=500, canvas_height=400,
+            "ui",
+            inner,
+            canvas_width=500,
+            canvas_height=400,
             graph_on_parent=True,
         )
         output = str(sp)
@@ -2235,3 +2248,463 @@ class TestAbstraction:
         outlet = node[1]
         assert outlet.index == 1
         assert outlet.owner is node
+
+
+class TestOptimizeHelpers:
+    """Tests for module-level optimize helpers."""
+
+    def test_protected_types_tuple(self):
+        """All expected types are in _PROTECTED_TYPES."""
+        for cls in (
+            Comment,
+            Subpatch,
+            Abstraction,
+            Array,
+            Msg,
+            Bang,
+            Toggle,
+            Symbol,
+            NumberBox,
+            VSlider,
+            HSlider,
+            VRadio,
+            HRadio,
+            Canvas,
+            VU,
+            Float,
+        ):
+            assert cls in _PROTECTED_TYPES
+
+    def test_obj_not_protected(self):
+        assert Obj not in _PROTECTED_TYPES
+
+    def test_send_receive_inactive_values(self):
+        assert "empty" in _SEND_RECEIVE_INACTIVE
+        assert "-" in _SEND_RECEIVE_INACTIVE
+        assert "" in _SEND_RECEIVE_INACTIVE
+
+    def test_has_active_send_receive_inactive(self):
+        node = Obj(0, 0, "osc~ 440")
+        assert not _has_active_send_receive(node)
+
+    def test_has_active_send_receive_with_send(self):
+        node = Bang(0, 0, send="my-bus")
+        assert _has_active_send_receive(node)
+
+    def test_has_active_send_receive_with_receive(self):
+        node = Toggle(0, 0, receive="ctl")
+        assert _has_active_send_receive(node)
+
+    def test_has_active_send_receive_default_empty(self):
+        node = Bang(0, 0, send="empty", receive="empty")
+        assert not _has_active_send_receive(node)
+
+    def test_has_active_send_receive_dash(self):
+        node = Float(0, 0, send="-", receive="-")
+        assert not _has_active_send_receive(node)
+
+
+class TestOptimize:
+    """Tests for Patcher.optimize()."""
+
+    # -- Unused element removal --
+
+    def test_remove_disconnected_obj(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        unused = p.add("+~ 0.1")  # not connected
+        p.link(osc, dac)
+        result = p.optimize()
+        assert result["nodes_removed"] == 1
+        assert len(p.nodes) == 2
+        assert unused not in p.nodes
+
+    def test_preserve_comment(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        p.link(osc, dac)
+        c = Comment(10, 10, "my comment")
+        p.nodes.append(c)
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+        assert c in p.nodes
+
+    def test_preserve_msg(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        p.link(osc, p.add("dac~"))
+        msg = p.add_msg("hello")
+        p.optimize()
+        assert msg in p.nodes
+
+    def test_preserve_bang(self):
+        p = Patcher()
+        p.add("osc~ 440")
+        b = p.add_bang()
+        p.optimize()
+        # osc~ is disconnected Obj -> removed; bang is protected
+        assert b in p.nodes
+
+    def test_preserve_toggle(self):
+        p = Patcher()
+        t = p.add_toggle()
+        p.optimize()
+        assert t in p.nodes
+
+    def test_preserve_symbol(self):
+        p = Patcher()
+        s = p.add_symbol()
+        p.optimize()
+        assert s in p.nodes
+
+    def test_preserve_numberbox(self):
+        p = Patcher()
+        n = p.add_numberbox()
+        p.optimize()
+        assert n in p.nodes
+
+    def test_preserve_vslider(self):
+        p = Patcher()
+        v = p.add_vslider()
+        p.optimize()
+        assert v in p.nodes
+
+    def test_preserve_hslider(self):
+        p = Patcher()
+        h = p.add_hslider()
+        p.optimize()
+        assert h in p.nodes
+
+    def test_preserve_vradio(self):
+        p = Patcher()
+        v = p.add_vradio()
+        p.optimize()
+        assert v in p.nodes
+
+    def test_preserve_hradio(self):
+        p = Patcher()
+        h = p.add_hradio()
+        p.optimize()
+        assert h in p.nodes
+
+    def test_preserve_canvas(self):
+        p = Patcher()
+        c = p.add_canvas()
+        p.optimize()
+        assert c in p.nodes
+
+    def test_preserve_vu(self):
+        p = Patcher()
+        v = p.add_vu()
+        p.optimize()
+        assert v in p.nodes
+
+    def test_preserve_float(self):
+        p = Patcher()
+        f = p.add_float()
+        p.optimize()
+        assert f in p.nodes
+
+    def test_preserve_subpatch(self):
+        p = Patcher()
+        inner = Patcher()
+        sp = p.add_subpatch("sub", inner)
+        p.optimize()
+        assert sp in p.nodes
+
+    def test_preserve_abstraction(self):
+        p = Patcher()
+        ab = p.add_abstraction("my-abs", num_inlets=1, num_outlets=1)
+        p.optimize()
+        assert ab in p.nodes
+
+    def test_preserve_array(self):
+        p = Patcher()
+        arr = p.add_array("table1", 256)
+        p.optimize()
+        assert arr in p.nodes
+
+    def test_preserve_obj_with_active_send(self):
+        """Obj with non-default send parameter is kept."""
+        p = Patcher()
+        node = Obj(0, 0, "osc~ 440")
+        node.parameters["send"] = "my-bus"
+        p.nodes.append(node)
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+        assert node in p.nodes
+
+    def test_preserve_obj_with_active_receive(self):
+        p = Patcher()
+        node = Obj(0, 0, "noise~")
+        node.parameters["receive"] = "ctl"
+        p.nodes.append(node)
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+
+    # -- Index remapping --
+
+    def test_remap_remove_middle(self):
+        """Removing a middle node remaps connections correctly."""
+        p = Patcher()
+        a = p.add("osc~ 440")  # idx 0
+        p.add("+~ 0.1")  # idx 1 -- no connections
+        b = p.add("dac~")  # idx 2
+        p.link(a, b)
+        p.optimize()
+        assert len(p.nodes) == 2
+        assert p.nodes[0] is a
+        assert p.nodes[1] is b
+        # Connection should be remapped: 0->2 becomes 0->1
+        assert p.connections[0].source == 0
+        assert p.connections[0].sink == 1
+
+    def test_remap_remove_first(self):
+        p = Patcher()
+        p.add("print")  # idx 0
+        a = p.add("osc~ 440")  # idx 1
+        b = p.add("dac~")  # idx 2
+        p.link(a, b)
+        p.optimize()
+        assert len(p.nodes) == 2
+        assert p.connections[0].source == 0
+        assert p.connections[0].sink == 1
+
+    def test_remap_remove_last(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("dac~")
+        p.add("abs")
+        p.link(a, b)
+        p.optimize()
+        assert len(p.nodes) == 2
+        assert p.connections[0].source == 0
+        assert p.connections[0].sink == 1
+
+    def test_remap_remove_multiple(self):
+        p = Patcher()
+        p.add("print")  # 0
+        a = p.add("osc~ 440")  # 1
+        p.add("abs")  # 2
+        b = p.add("*~ 0.5")  # 3
+        p.add("sqrt")  # 4
+        c = p.add("dac~")  # 5
+        p.link(a, b)
+        p.link(b, c)
+        p.optimize()
+        assert len(p.nodes) == 3
+        assert p.nodes == [a, b, c]
+        assert p.connections[0].source == 0
+        assert p.connections[0].sink == 1
+        assert p.connections[1].source == 1
+        assert p.connections[1].sink == 2
+
+    # -- Serialization after optimize --
+
+    def test_serialization_after_optimize(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        p.add("abs")  # unused
+        b = p.add("dac~")
+        p.link(a, b)
+        p.optimize()
+        output = str(p)
+        assert "#X connect 0 0 1 0;" in output
+        assert "abs" not in output
+
+    # -- Duplicate removal --
+
+    def test_duplicate_removal(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("dac~")
+        p.link(a, b)
+        p.link(a, b)  # exact duplicate
+        assert len(p.connections) == 2
+        result = p.optimize()
+        assert result["duplicates_removed"] == 1
+        assert len(p.connections) == 1
+
+    def test_duplicate_removal_different_outlets_not_duplicate(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("dac~")
+        p.link(a, b, inlet=0)
+        p.link(a, b, inlet=1)
+        result = p.optimize()
+        assert result["duplicates_removed"] == 0
+        assert len(p.connections) == 2
+
+    # -- Pass-through collapse --
+
+    def test_passthrough_collapse_bang(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("bang")
+        c = p.add("dac~")
+        p.link(a, b)
+        p.link(b, c)
+        result = p.optimize(collapsible_objects=frozenset({"bang"}))
+        assert result["pass_throughs_collapsed"] == 1
+        assert b not in p.nodes
+        assert len(p.nodes) == 2
+        assert len(p.connections) == 1
+        assert p.connections[0].source == 0
+        assert p.connections[0].sink == 1
+
+    def test_no_collapse_when_has_args(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("bang 100")  # has args
+        c = p.add("dac~")
+        p.link(a, b)
+        p.link(b, c)
+        result = p.optimize(collapsible_objects=frozenset({"bang"}))
+        assert result["pass_throughs_collapsed"] == 0
+
+    def test_no_collapse_when_multi_connections(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("bang")
+        c = p.add("dac~")
+        d = p.add("print")
+        p.link(a, b)
+        p.link(b, c)
+        p.link(b, d)  # 2 outgoing
+        result = p.optimize(collapsible_objects=frozenset({"bang"}))
+        assert result["pass_throughs_collapsed"] == 0
+
+    def test_no_collapse_when_not_in_set(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("bang")
+        c = p.add("dac~")
+        p.link(a, b)
+        p.link(b, c)
+        result = p.optimize(collapsible_objects=frozenset({"trigger"}))
+        assert result["pass_throughs_collapsed"] == 0
+
+    def test_default_no_collapse(self):
+        """Empty collapsible_objects means no collapse."""
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("bang")
+        c = p.add("dac~")
+        p.link(a, b)
+        p.link(b, c)
+        result = p.optimize()
+        assert result["pass_throughs_collapsed"] == 0
+
+    def test_no_collapse_multi_inlet(self):
+        """Obj with >1 inlet should not be collapsed."""
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("+", num_inlets=2, num_outlets=1)
+        c = p.add("dac~")
+        p.link(a, b)
+        p.link(b, c)
+        result = p.optimize(collapsible_objects=frozenset({"+"}))
+        assert result["pass_throughs_collapsed"] == 0
+
+    # -- Idempotency --
+
+    def test_idempotent(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        p.add("abs")
+        b = p.add("dac~")
+        p.link(a, b)
+        p.link(a, b)
+        first = p.optimize()
+        assert first["nodes_removed"] == 1
+        assert first["duplicates_removed"] == 1
+        second = p.optimize()
+        assert second["nodes_removed"] == 0
+        assert second["duplicates_removed"] == 0
+        assert second["connections_removed"] == 0
+        assert second["pass_throughs_collapsed"] == 0
+
+    # -- Combined --
+
+    def test_combined_duplicates_and_unused(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("dac~")
+        p.add("abs")
+        p.link(a, b)
+        p.link(a, b)
+        result = p.optimize()
+        assert result["nodes_removed"] == 1
+        assert result["duplicates_removed"] == 1
+        assert len(p.nodes) == 2
+        assert len(p.connections) == 1
+
+    # -- Recursive --
+
+    def test_recursive_subpatch_optimization(self):
+        inner = Patcher()
+        ia = inner.add("osc~ 440")
+        ib = inner.add("dac~")
+        inner.add("abs")  # unused
+        inner.link(ia, ib)
+
+        p = Patcher()
+        sp = p.add_subpatch("sub", inner)
+        a = p.add("osc~ 440")
+        p.link(a, sp)
+        result = p.optimize(recursive=True)
+        assert result["subpatches_optimized"] == 1
+        assert len(inner.nodes) == 2  # abs removed from inner
+
+    # -- Edge cases --
+
+    def test_empty_patch(self):
+        p = Patcher()
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+        assert result["connections_removed"] == 0
+
+    def test_fully_connected_patch(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        b = p.add("*~ 0.5")
+        c = p.add("dac~")
+        p.link(a, b)
+        p.link(b, c)
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+        assert len(p.nodes) == 3
+
+    def test_only_protected_types(self):
+        p = Patcher()
+        p.add_bang()
+        p.add_toggle()
+        p.add_msg("hi")
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+
+    def test_layout_reset_after_optimize(self):
+        p = Patcher()
+        a = p.add("osc~ 440")
+        p.add("abs")
+        b = p.add("dac~")
+        p.link(a, b)
+        p.optimize()
+        assert p.layout.row_head is None
+        assert p.layout.row_tail is None
+
+    def test_connections_removed_stat(self):
+        """connections_removed counts duplicates plus connections dropped by node removal."""
+        p = Patcher()
+        a = p.add("osc~ 440")
+        p.add("abs")  # truly isolated -- no connections
+        b = p.add("dac~")
+        p.link(a, b)
+        p.link(a, b)  # duplicate
+        result = p.optimize()
+        assert result["duplicates_removed"] == 1
+        assert result["nodes_removed"] == 1
+        # 2 original connections, 1 surviving = 1 removed
+        assert result["connections_removed"] == 1

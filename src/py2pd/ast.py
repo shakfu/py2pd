@@ -64,6 +64,7 @@ class PdObj:
 
     @property
     def text(self) -> str:
+        """Full object text as it appears in the patch (class name + args)."""
         if self.args:
             return f"{self.class_name} {' '.join(self.args)}"
         return self.class_name
@@ -183,6 +184,28 @@ class PdCoords:
             f"{self.width} {self.height} {self.graph_on_parent} "
             f"{self.hide_name} {self.x_margin} {self.y_margin};"
         )
+
+
+@dataclass(frozen=True)
+class PdDeclare:
+    """A declare statement (#X declare) for search paths and libraries."""
+
+    paths: Tuple[str, ...] = field(default_factory=tuple)
+    libs: Tuple[str, ...] = field(default_factory=tuple)
+    stdpath: bool = False
+    stdlib: bool = False
+
+    def __str__(self) -> str:
+        parts = ["#X declare"]
+        for p in self.paths:
+            parts.append(f"-path {p}")
+        for lib in self.libs:
+            parts.append(f"-lib {lib}")
+        if self.stdpath:
+            parts.append("-stdpath")
+        if self.stdlib:
+            parts.append("-stdlib")
+        return " ".join(parts) + ";"
 
 
 @dataclass(frozen=True)
@@ -484,6 +507,7 @@ PdElement = Union[
     PdArray,
     PdConnect,
     PdCoords,
+    PdDeclare,
     PdBng,
     PdTgl,
     PdNbx,
@@ -528,20 +552,49 @@ class PdPatch:
         self,
     ) -> List[
         Union[
-            PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl,
-            PdNbx, PdVsl, PdHsl, PdVradio, PdHradio, PdCnv, PdVu,
+            PdObj,
+            PdMsg,
+            PdFloatAtom,
+            PdSymbolAtom,
+            PdBng,
+            PdTgl,
+            PdNbx,
+            PdVsl,
+            PdHsl,
+            PdVradio,
+            PdHradio,
+            PdCnv,
+            PdVu,
             PdSubpatch,
         ]
     ]:
-        """Get all connectable objects (not connections, arrays, or coords)."""
+        """Get all connectable objects (excludes connections, arrays, coords, and declares).
+
+        Returns
+        -------
+        list
+            All elements that occupy an object index in PureData's connection
+            numbering scheme.
+        """
         return [
             e
             for e in self.elements
             if isinstance(
                 e,
                 (
-                    PdObj, PdMsg, PdFloatAtom, PdSymbolAtom, PdBng, PdTgl,
-                    PdNbx, PdVsl, PdHsl, PdVradio, PdHradio, PdCnv, PdVu,
+                    PdObj,
+                    PdMsg,
+                    PdFloatAtom,
+                    PdSymbolAtom,
+                    PdBng,
+                    PdTgl,
+                    PdNbx,
+                    PdVsl,
+                    PdHsl,
+                    PdVradio,
+                    PdHradio,
+                    PdCnv,
+                    PdVu,
                     PdSubpatch,
                 ),
             )
@@ -927,6 +980,38 @@ def _parse_coords(tokens: List[str]) -> PdCoords:
     )
 
 
+def _parse_declare(tokens: List[str]) -> PdDeclare:
+    """Parse #X declare line."""
+    # #X declare [-path val]... [-lib val]... [-stdpath] [-stdlib]
+    paths: List[str] = []
+    libs: List[str] = []
+    stdpath = False
+    stdlib = False
+    i = 2  # skip "#X" and "declare"
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "-path" and i + 1 < len(tokens):
+            paths.append(tokens[i + 1])
+            i += 2
+        elif tok == "-lib" and i + 1 < len(tokens):
+            libs.append(tokens[i + 1])
+            i += 2
+        elif tok == "-stdpath":
+            stdpath = True
+            i += 1
+        elif tok == "-stdlib":
+            stdlib = True
+            i += 1
+        else:
+            i += 1
+    return PdDeclare(
+        paths=tuple(paths),
+        libs=tuple(libs),
+        stdpath=stdpath,
+        stdlib=stdlib,
+    )
+
+
 def _parse_restore(tokens: List[str]) -> PdRestore:
     """Parse #X restore line."""
     # #X restore x y pd name
@@ -1054,6 +1139,8 @@ def parse(content: str) -> PdPatch:
                 current_elements.append(_parse_connect(tokens))
             elif cmd == "coords":
                 current_elements.append(_parse_coords(tokens))
+            elif cmd == "declare":
+                current_elements.append(_parse_declare(tokens))
             elif cmd == "restore":
                 # End of subpatch
                 restore = _parse_restore(tokens)
@@ -1237,9 +1324,16 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             if p["graph_on_parent"]:
                 inner_elements.append(
                     PdCoords(
-                        0, 1, 1, 0,
-                        p["gop_width"], p["gop_height"],
-                        1, int(p["hide_name"]), 0, 0,
+                        0,
+                        1,
+                        1,
+                        0,
+                        p["gop_width"],
+                        p["gop_height"],
+                        1,
+                        int(p["hide_name"]),
+                        0,
+                        0,
                     )
                 )
             elements.append(PdSubpatch(subpatch_canvas, inner_elements, restore))
@@ -1311,11 +1405,25 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdNbx(
-                    pos, p["width"], p["height"], p["min_val"], p["max_val"],
-                    p["log_flag"], p["init"], p["send"], p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["fg_color"], p["label_color"],
-                    p["init_value"], p["log_height"],
+                    pos,
+                    p["width"],
+                    p["height"],
+                    p["min_val"],
+                    p["max_val"],
+                    p["log_flag"],
+                    p["init"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                    p["init_value"],
+                    p["log_height"],
                 )
             )
 
@@ -1324,11 +1432,25 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdVsl(
-                    pos, p["width"], p["height"], p["min_val"], p["max_val"],
-                    p["log_flag"], p["init"], p["send"], p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["fg_color"], p["label_color"],
-                    p["init_value"], p["steady"],
+                    pos,
+                    p["width"],
+                    p["height"],
+                    p["min_val"],
+                    p["max_val"],
+                    p["log_flag"],
+                    p["init"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                    p["init_value"],
+                    p["steady"],
                 )
             )
 
@@ -1337,11 +1459,25 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdHsl(
-                    pos, p["width"], p["height"], p["min_val"], p["max_val"],
-                    p["log_flag"], p["init"], p["send"], p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["fg_color"], p["label_color"],
-                    p["init_value"], p["steady"],
+                    pos,
+                    p["width"],
+                    p["height"],
+                    p["min_val"],
+                    p["max_val"],
+                    p["log_flag"],
+                    p["init"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                    p["init_value"],
+                    p["steady"],
                 )
             )
 
@@ -1350,10 +1486,22 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdVradio(
-                    pos, p["size"], p["new_old"], p["init"], p["number"],
-                    p["send"], p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["fg_color"], p["label_color"], p["init_value"],
+                    pos,
+                    p["size"],
+                    p["new_old"],
+                    p["init"],
+                    p["number"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                    p["init_value"],
                 )
             )
 
@@ -1362,10 +1510,22 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdHradio(
-                    pos, p["size"], p["new_old"], p["init"], p["number"],
-                    p["send"], p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["fg_color"], p["label_color"], p["init_value"],
+                    pos,
+                    p["size"],
+                    p["new_old"],
+                    p["init"],
+                    p["number"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["fg_color"],
+                    p["label_color"],
+                    p["init_value"],
                 )
             )
 
@@ -1374,10 +1534,19 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdCnv(
-                    pos, p["size"], p["width"], p["height"],
-                    p["send"], p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["label_color"],
+                    pos,
+                    p["size"],
+                    p["width"],
+                    p["height"],
+                    p["send"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["label_color"],
                 )
             )
 
@@ -1386,10 +1555,18 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             pos = Position(p["x_pos"], p["y_pos"])
             elements.append(
                 PdVu(
-                    pos, p["width"], p["height"],
-                    p["receive"], p["label"],
-                    p["label_x"], p["label_y"], p["font"], p["font_size"],
-                    p["bg_color"], p["label_color"], p["scale"],
+                    pos,
+                    p["width"],
+                    p["height"],
+                    p["receive"],
+                    p["label"],
+                    p["label_x"],
+                    p["label_y"],
+                    p["font"],
+                    p["font_size"],
+                    p["bg_color"],
+                    p["label_color"],
+                    p["scale"],
                 )
             )
 
@@ -1487,8 +1664,10 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                     gop_kwargs["gop_height"] = sub_elem.height
                     break
             node = patch.add_subpatch(
-                name, inner_patch,
-                x_pos=pos.x, y_pos=pos.y,
+                name,
+                inner_patch,
+                x_pos=pos.x,
+                y_pos=pos.y,
                 canvas_width=elem.canvas.width,
                 canvas_height=elem.canvas.height,
                 **gop_kwargs,
@@ -1541,100 +1720,162 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
 
         elif isinstance(elem, PdNbx):
             node = api.NumberBox(
-                elem.position.x, elem.position.y,
-                width=elem.width, height=elem.height,
-                min_val=elem.min_val, max_val=elem.max_val,
-                log_flag=elem.log_flag, init=elem.init,
-                send=elem.send, receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                elem.position.x,
+                elem.position.y,
+                width=elem.width,
+                height=elem.height,
+                min_val=elem.min_val,
+                max_val=elem.max_val,
+                log_flag=elem.log_flag,
+                init=elem.init,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
                 label_color=elem.label_color,
-                init_value=elem.init_value, log_height=elem.log_height,
+                init_value=elem.init_value,
+                log_height=elem.log_height,
             )
             patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdVsl):
             node = api.VSlider(
-                elem.position.x, elem.position.y,
-                width=elem.width, height=elem.height,
-                min_val=elem.min_val, max_val=elem.max_val,
-                log_flag=elem.log_flag, init=elem.init,
-                send=elem.send, receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                elem.position.x,
+                elem.position.y,
+                width=elem.width,
+                height=elem.height,
+                min_val=elem.min_val,
+                max_val=elem.max_val,
+                log_flag=elem.log_flag,
+                init=elem.init,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
                 label_color=elem.label_color,
-                init_value=elem.init_value, steady=elem.steady,
+                init_value=elem.init_value,
+                steady=elem.steady,
             )
             patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdHsl):
             node = api.HSlider(
-                elem.position.x, elem.position.y,
-                width=elem.width, height=elem.height,
-                min_val=elem.min_val, max_val=elem.max_val,
-                log_flag=elem.log_flag, init=elem.init,
-                send=elem.send, receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, fg_color=elem.fg_color,
+                elem.position.x,
+                elem.position.y,
+                width=elem.width,
+                height=elem.height,
+                min_val=elem.min_val,
+                max_val=elem.max_val,
+                log_flag=elem.log_flag,
+                init=elem.init,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
                 label_color=elem.label_color,
-                init_value=elem.init_value, steady=elem.steady,
+                init_value=elem.init_value,
+                steady=elem.steady,
             )
             patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdVradio):
             node = api.VRadio(
-                elem.position.x, elem.position.y,
-                size=elem.size, new_old=elem.new_old,
-                init=elem.init, number=elem.number,
-                send=elem.send, receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, fg_color=elem.fg_color,
-                label_color=elem.label_color, init_value=elem.init_value,
+                elem.position.x,
+                elem.position.y,
+                size=elem.size,
+                new_old=elem.new_old,
+                init=elem.init,
+                number=elem.number,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
+                label_color=elem.label_color,
+                init_value=elem.init_value,
             )
             patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdHradio):
             node = api.HRadio(
-                elem.position.x, elem.position.y,
-                size=elem.size, new_old=elem.new_old,
-                init=elem.init, number=elem.number,
-                send=elem.send, receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, fg_color=elem.fg_color,
-                label_color=elem.label_color, init_value=elem.init_value,
+                elem.position.x,
+                elem.position.y,
+                size=elem.size,
+                new_old=elem.new_old,
+                init=elem.init,
+                number=elem.number,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                fg_color=elem.fg_color,
+                label_color=elem.label_color,
+                init_value=elem.init_value,
             )
             patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdCnv):
             node = api.Canvas(
-                elem.position.x, elem.position.y,
-                size=elem.size, width=elem.width, height=elem.height,
-                send=elem.send, receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, label_color=elem.label_color,
+                elem.position.x,
+                elem.position.y,
+                size=elem.size,
+                width=elem.width,
+                height=elem.height,
+                send=elem.send,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                label_color=elem.label_color,
             )
             patch.nodes.append(node)
             node_map.append(node)
 
         elif isinstance(elem, PdVu):
             node = api.VU(
-                elem.position.x, elem.position.y,
-                width=elem.width, height=elem.height,
-                receive=elem.receive, label=elem.label,
-                label_x=elem.label_x, label_y=elem.label_y,
-                font=elem.font, font_size=elem.font_size,
-                bg_color=elem.bg_color, label_color=elem.label_color,
+                elem.position.x,
+                elem.position.y,
+                width=elem.width,
+                height=elem.height,
+                receive=elem.receive,
+                label=elem.label,
+                label_x=elem.label_x,
+                label_y=elem.label_y,
+                font=elem.font,
+                font_size=elem.font_size,
+                bg_color=elem.bg_color,
+                label_color=elem.label_color,
                 scale=elem.scale,
             )
             patch.nodes.append(node)
@@ -1642,6 +1883,10 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
 
         elif isinstance(elem, PdConnect):
             # Skip connections in first pass
+            pass
+
+        elif isinstance(elem, PdDeclare):
+            # Declare has no builder equivalent; skip silently
             pass
 
         else:
