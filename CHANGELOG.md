@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Graph-on-Parent (GOP)**: `add_subpatch()` and `Subpatch` now support `graph_on_parent`, `hide_name`, `gop_width`, `gop_height` parameters. Emits `#X coords` line in output. Round-trips through `from_builder()`/`to_builder()`.
+- **Abstractions**: `Abstraction` class and `add_abstraction()` method for referencing external `.pd` files. Supports manual or auto-inferred inlet/outlet counts via `source_path`. Serializes as standard `#X obj`.
+- `_infer_abstraction_io()` helper to count inlets/outlets from a `.pd` file
+- `from_builder()` now preserves subpatch `canvas_width`/`canvas_height` instead of hardcoding 300x180
+- `to_builder()` now preserves subpatch canvas dimensions from AST
+- Tests for GOP (builder output, dimensions, hide_name, round-trip)
+- Tests for Abstraction (str, args, dimensions, linking, IO inference, round-trip)
 - 7 IEM GUI AST types: `PdNbx`, `PdVsl`, `PdHsl`, `PdVradio`, `PdHradio`, `PdCnv`, `PdVu` -- full round-trip parsing and serialization
 - `PD_OBJECT_REGISTRY` mapping ~80 common Pd objects to inlet/outlet counts, auto-filled by `Patcher.add()`
 - `link()` now accepts `Node.Outlet` objects (e.g. `p.link(osc[1], dac)`) in addition to plain `Node`

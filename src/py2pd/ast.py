@@ -1179,7 +1179,16 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
     elements: List[PdElement] = []
 
     for node in patch.nodes:
-        if isinstance(node, api.Obj):
+        if isinstance(node, api.Abstraction):
+            p = node.parameters
+            pos = Position(p["x_pos"], p["y_pos"])
+            text = p["text"]
+            parts = text.split(None, 1)
+            class_name = parts[0] if parts else ""
+            args = tuple(parts[1].split()) if len(parts) > 1 else ()
+            elements.append(PdObj(pos, class_name, args))
+
+        elif isinstance(node, api.Obj):
             text = node.parameters["text"]
             parts = text.split(None, 1)
             class_name = parts[0] if parts else ""
@@ -1220,9 +1229,20 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             inner_ast = from_builder(node.src)
             p = node.parameters
             pos = Position(p["x_pos"], p["y_pos"])
-            subpatch_canvas = CanvasProperties(0, 0, 300, 180, 10, "(subpatch)", 0)
+            subpatch_canvas = CanvasProperties(
+                0, 0, node.canvas_width, node.canvas_height, 10, "(subpatch)", 0
+            )
             restore = PdRestore(pos, p["name"])
-            elements.append(PdSubpatch(subpatch_canvas, inner_ast.elements, restore))
+            inner_elements = list(inner_ast.elements)
+            if p["graph_on_parent"]:
+                inner_elements.append(
+                    PdCoords(
+                        0, 1, 1, 0,
+                        p["gop_width"], p["gop_height"],
+                        1, int(p["hide_name"]), 0, 0,
+                    )
+                )
+            elements.append(PdSubpatch(subpatch_canvas, inner_elements, restore))
 
         elif isinstance(node, api.Bang):
             p = node.parameters
@@ -1457,7 +1477,22 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             inner_patch = to_builder(PdPatch(elem.canvas, elem.elements))
             name = elem.restore.name if elem.restore else "subpatch"
             pos = elem.restore.position if elem.restore else Position(0, 0)
-            node = patch.add_subpatch(name, inner_patch, x_pos=pos.x, y_pos=pos.y)
+            # Extract GOP settings from PdCoords if present
+            gop_kwargs: dict = {}
+            for sub_elem in elem.elements:
+                if isinstance(sub_elem, PdCoords) and sub_elem.graph_on_parent >= 1:
+                    gop_kwargs["graph_on_parent"] = True
+                    gop_kwargs["hide_name"] = bool(sub_elem.hide_name)
+                    gop_kwargs["gop_width"] = sub_elem.width
+                    gop_kwargs["gop_height"] = sub_elem.height
+                    break
+            node = patch.add_subpatch(
+                name, inner_patch,
+                x_pos=pos.x, y_pos=pos.y,
+                canvas_width=elem.canvas.width,
+                canvas_height=elem.canvas.height,
+                **gop_kwargs,
+            )
             node_map.append(node)
 
         elif isinstance(elem, PdBng):

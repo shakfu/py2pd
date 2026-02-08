@@ -23,6 +23,9 @@ AST API example (round-trip):
 
 # Builder API
 from .api import (
+    Abstraction as Abstraction,
+)
+from .api import (
     COLUMN_WIDTH as COLUMN_WIDTH,
 )
 from .api import (
@@ -86,6 +89,7 @@ from .ast import (
 __all__ = [
     # Builder API
     "Patcher",
+    "Abstraction",
     "LayoutManager",
     "GridLayoutManager",
     # Exceptions

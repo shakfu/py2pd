@@ -32,6 +32,7 @@ from py2pd.api import (
     SUBPATCH_CANVAS_WIDTH,
     TEXT_WRAP_WIDTH,
     VU,
+    Abstraction,
     Array,
     Bang,
     Canvas,
@@ -49,6 +50,7 @@ from py2pd.api import (
     Toggle,
     VRadio,
     VSlider,
+    _infer_abstraction_io,
     escape,
     get_display_lines,
     unescape,
@@ -2083,3 +2085,153 @@ class TestPdObjectRegistry:
         assert "loadbang" in PD_OBJECT_REGISTRY
         assert "send" in PD_OBJECT_REGISTRY
         assert "receive" in PD_OBJECT_REGISTRY
+
+
+class TestGOP:
+    """Tests for Graph-on-Parent support on Subpatch."""
+
+    def test_gop_subpatch_str(self):
+        inner = Patcher()
+        inner.add("inlet")
+        parent = Patcher()
+        sp = parent.add_subpatch("controls", inner, graph_on_parent=True)
+        output = str(sp)
+        assert "#X coords 0 1 1 0 85 60 1 0 0 0;" in output
+        assert "#X restore" in output
+
+    def test_gop_dimensions(self):
+        inner = Patcher()
+        parent = Patcher()
+        sp = parent.add_subpatch(
+            "controls", inner,
+            graph_on_parent=True, gop_width=120, gop_height=80,
+        )
+        assert sp.dimensions == (120, 80)
+
+    def test_gop_hide_name(self):
+        inner = Patcher()
+        parent = Patcher()
+        sp = parent.add_subpatch(
+            "controls", inner,
+            graph_on_parent=True, hide_name=True,
+        )
+        output = str(sp)
+        assert "#X coords 0 1 1 0 85 60 1 1 0 0;" in output
+
+    def test_gop_default_off(self):
+        inner = Patcher()
+        parent = Patcher()
+        sp = parent.add_subpatch("controls", inner)
+        output = str(sp)
+        assert "#X coords" not in output
+
+    def test_gop_dimensions_default_when_off(self):
+        inner = Patcher()
+        parent = Patcher()
+        sp = parent.add_subpatch("controls", inner)
+        w, h = sp.dimensions
+        assert h == ROW_HEIGHT
+        # Text-based width for "pd controls"
+        label_text = "pd controls"
+        expected_w = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + len(label_text) * CHAR_WIDTH)
+        assert w == expected_w
+
+    def test_gop_custom_dimensions_in_str(self):
+        inner = Patcher()
+        parent = Patcher()
+        sp = parent.add_subpatch(
+            "ui", inner,
+            graph_on_parent=True, gop_width=200, gop_height=150,
+        )
+        output = str(sp)
+        assert "#X coords 0 1 1 0 200 150 1 0 0 0;" in output
+
+    def test_gop_canvas_dimensions_in_str(self):
+        inner = Patcher()
+        parent = Patcher()
+        sp = parent.add_subpatch(
+            "ui", inner,
+            canvas_width=500, canvas_height=400,
+            graph_on_parent=True,
+        )
+        output = str(sp)
+        assert "#N canvas 0 0 500 400 (subpatch) 0;" in output
+
+
+class TestAbstraction:
+    """Tests for the Abstraction class."""
+
+    def test_abstraction_str(self):
+        node = Abstraction(100, 200, "my-synth")
+        assert str(node) == "#X obj 100 200 my-synth;\n"
+
+    def test_abstraction_with_args(self):
+        node = Abstraction(100, 200, "my-synth", "440", "0.5")
+        assert str(node) == "#X obj 100 200 my-synth 440 0.5;\n"
+
+    def test_abstraction_repr(self):
+        node = Abstraction(100, 200, "my-synth", "440")
+        assert repr(node) == "Abstraction(100, 200, 'my-synth 440')"
+
+    def test_abstraction_dimensions(self):
+        node = Abstraction(0, 0, "my-synth")
+        w, h = node.dimensions
+        assert h == ROW_HEIGHT
+        expected_w = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + len("my-synth") * CHAR_WIDTH)
+        assert w == expected_w
+
+    def test_abstraction_link(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        ab = p.add_abstraction("my-filter", num_inlets=1, num_outlets=1)
+        dac = p.add("dac~")
+        p.link(osc, ab)
+        p.link(ab, dac)
+        assert len(p.connections) == 2
+
+    def test_add_abstraction_manual_io(self):
+        p = Patcher()
+        ab = p.add_abstraction("my-synth", "440", num_inlets=2, num_outlets=1)
+        assert ab.num_inlets == 2
+        assert ab.num_outlets == 1
+        assert ab.parameters["name"] == "my-synth"
+        assert ab.parameters["text"] == "my-synth 440"
+
+    def test_add_abstraction_infer_io(self, tmp_path):
+        pd_file = tmp_path / "my-synth.pd"
+        pd_file.write_text(
+            "#N canvas 0 50 450 300 10;\n"
+            "#X obj 50 50 inlet;\n"
+            "#X obj 50 100 inlet~;\n"
+            "#X obj 50 150 osc~ 440;\n"
+            "#X obj 50 200 outlet~;\n"
+            "#X obj 50 250 outlet;\n"
+        )
+        p = Patcher()
+        ab = p.add_abstraction("my-synth", source_path=str(pd_file))
+        assert ab.num_inlets == 2
+        assert ab.num_outlets == 2
+
+    def test_add_abstraction_default_io(self):
+        p = Patcher()
+        ab = p.add_abstraction("unknown-abs")
+        assert ab.num_inlets == 0
+        assert ab.num_outlets == 0
+
+    def test_infer_abstraction_io(self, tmp_path):
+        pd_file = tmp_path / "test.pd"
+        pd_file.write_text(
+            "#N canvas 0 50 450 300 10;\n"
+            "#X obj 10 10 inlet;\n"
+            "#X obj 10 50 inlet~;\n"
+            "#X obj 10 90 outlet;\n"
+        )
+        num_in, num_out = _infer_abstraction_io(str(pd_file))
+        assert num_in == 2
+        assert num_out == 1
+
+    def test_abstraction_outlet_indexing(self):
+        node = Abstraction(0, 0, "synth", num_inlets=1, num_outlets=2)
+        outlet = node[1]
+        assert outlet.index == 1
+        assert outlet.owner is node

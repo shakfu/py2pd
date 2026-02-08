@@ -15,7 +15,7 @@ from py2pd import (
     serialize_to_file,
     to_builder,
 )
-from py2pd.api import Comment, Symbol
+from py2pd.api import Abstraction, Comment, Subpatch, Symbol
 from py2pd.ast import (
     CanvasProperties,
     PdArray,
@@ -1272,3 +1272,151 @@ class TestPdCoords:
         assert len(ast.elements) == 2
         assert isinstance(ast.elements[0], PdObj)
         assert isinstance(ast.elements[1], PdCoords)
+
+
+class TestGOPBridge:
+    """Tests for Graph-on-Parent round-trip through from_builder/to_builder."""
+
+    def test_gop_from_builder(self):
+        inner = Patcher()
+        inner.add("inlet", x_pos=50, y_pos=50)
+        parent = Patcher()
+        parent.add_subpatch(
+            "controls", inner,
+            graph_on_parent=True, gop_width=120, gop_height=80,
+            x_pos=100, y_pos=200,
+        )
+        ast = from_builder(parent)
+        subpatch = ast.elements[0]
+        assert isinstance(subpatch, PdSubpatch)
+        # Should contain inlet + PdCoords
+        coords_elems = [e for e in subpatch.elements if isinstance(e, PdCoords)]
+        assert len(coords_elems) == 1
+        coords = coords_elems[0]
+        assert coords.graph_on_parent == 1
+        assert coords.width == 120
+        assert coords.height == 80
+        assert coords.hide_name == 0
+
+    def test_gop_from_builder_hide_name(self):
+        inner = Patcher()
+        parent = Patcher()
+        parent.add_subpatch(
+            "ui", inner,
+            graph_on_parent=True, hide_name=True,
+            x_pos=10, y_pos=20,
+        )
+        ast = from_builder(parent)
+        subpatch = ast.elements[0]
+        coords_elems = [e for e in subpatch.elements if isinstance(e, PdCoords)]
+        assert len(coords_elems) == 1
+        assert coords_elems[0].hide_name == 1
+
+    def test_gop_from_builder_no_coords_when_off(self):
+        inner = Patcher()
+        parent = Patcher()
+        parent.add_subpatch("plain", inner, x_pos=10, y_pos=20)
+        ast = from_builder(parent)
+        subpatch = ast.elements[0]
+        coords_elems = [e for e in subpatch.elements if isinstance(e, PdCoords)]
+        assert len(coords_elems) == 0
+
+    def test_gop_to_builder(self):
+        # Build an AST with a subpatch containing PdCoords
+        inner_canvas = CanvasProperties(0, 0, 400, 300, 10, "(subpatch)", 0)
+        inner_elements = [
+            PdObj(Position(50, 50), "inlet"),
+            PdCoords(0, 1, 1, 0, 150, 100, 1, 1, 0, 0),
+        ]
+        restore = PdRestore(Position(100, 200), "controls")
+        subpatch = PdSubpatch(inner_canvas, inner_elements, restore)
+        ast = PdPatch(CanvasProperties(), [subpatch])
+        patch = to_builder(ast)
+        assert len(patch.nodes) == 1
+        sp = patch.nodes[0]
+        assert isinstance(sp, Subpatch)
+        assert sp.parameters["graph_on_parent"] is True
+        assert sp.parameters["hide_name"] is True
+        assert sp.parameters["gop_width"] == 150
+        assert sp.parameters["gop_height"] == 100
+        assert sp.canvas_width == 400
+        assert sp.canvas_height == 300
+
+    def test_gop_roundtrip(self):
+        inner = Patcher()
+        inner.add("inlet", x_pos=50, y_pos=50)
+        parent = Patcher()
+        parent.add_subpatch(
+            "controls", inner,
+            graph_on_parent=True, hide_name=True,
+            gop_width=200, gop_height=150,
+            canvas_width=500, canvas_height=400,
+            x_pos=100, y_pos=200,
+        )
+        # builder -> AST -> builder
+        ast = from_builder(parent)
+        rebuilt = to_builder(ast)
+        sp = rebuilt.nodes[0]
+        assert isinstance(sp, Subpatch)
+        assert sp.parameters["graph_on_parent"] is True
+        assert sp.parameters["hide_name"] is True
+        assert sp.parameters["gop_width"] == 200
+        assert sp.parameters["gop_height"] == 150
+        assert sp.canvas_width == 500
+        assert sp.canvas_height == 400
+
+    def test_gop_canvas_dimensions_preserved(self):
+        inner = Patcher()
+        parent = Patcher()
+        parent.add_subpatch(
+            "test", inner,
+            canvas_width=600, canvas_height=450,
+            x_pos=10, y_pos=20,
+        )
+        ast = from_builder(parent)
+        subpatch = ast.elements[0]
+        assert isinstance(subpatch, PdSubpatch)
+        assert subpatch.canvas.width == 600
+        assert subpatch.canvas.height == 450
+
+
+class TestAbstractionBridge:
+    """Tests for Abstraction round-trip through from_builder/to_builder."""
+
+    def test_abstraction_from_builder(self):
+        parent = Patcher()
+        parent.add_abstraction("my-synth", "440", x_pos=100, y_pos=200, num_inlets=1)
+        ast = from_builder(parent)
+        assert len(ast.elements) == 1
+        obj = ast.elements[0]
+        assert isinstance(obj, PdObj)
+        assert obj.class_name == "my-synth"
+        assert obj.args == ("440",)
+        assert obj.position.x == 100
+        assert obj.position.y == 200
+
+    def test_abstraction_from_builder_no_args(self):
+        parent = Patcher()
+        parent.add_abstraction("reverb", x_pos=50, y_pos=50)
+        ast = from_builder(parent)
+        obj = ast.elements[0]
+        assert isinstance(obj, PdObj)
+        assert obj.class_name == "reverb"
+        assert obj.args == ()
+
+    def test_abstraction_roundtrip_produces_obj(self):
+        """Abstraction -> AST -> builder produces Obj (not Abstraction).
+
+        This is expected: the distinction is purely at the builder level.
+        At the file format level, abstractions are indistinguishable from
+        regular objects.
+        """
+        parent = Patcher()
+        parent.add_abstraction("my-synth", "440", x_pos=100, y_pos=200)
+        ast = from_builder(parent)
+        rebuilt = to_builder(ast)
+        assert len(rebuilt.nodes) == 1
+        # Should come back as Obj, not Abstraction
+        from py2pd.api import Obj
+        assert type(rebuilt.nodes[0]) is Obj
+        assert rebuilt.nodes[0].parameters["text"] == "my-synth 440"

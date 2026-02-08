@@ -147,8 +147,8 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [x] Auto-infer subpatch `num_inlets`/`num_outlets` from inner `inlet`/`outlet` objects
 - [x] Accept `Outlet` objects in `link()` (or document `__getitem__` as informational-only)
 - [x] Pd object registry: dict mapping common object names to inlet/outlet counts for validation
-- [ ] Graph-on-parent support
-- [ ] Abstractions (external .pd file references)
+- [x] Graph-on-parent support
+- [x] Abstractions (external .pd file references)
 - [ ] Externals discovery
 - [ ] Pd-extended / Purr Data compatibility
 - [ ] libpd integration for patch validation

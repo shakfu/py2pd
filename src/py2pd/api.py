@@ -345,6 +345,10 @@ class Subpatch(Node):
         num_outlets: Optional[int] = None,
         canvas_width: int = SUBPATCH_CANVAS_WIDTH,
         canvas_height: int = SUBPATCH_CANVAS_HEIGHT,
+        graph_on_parent: bool = False,
+        hide_name: bool = False,
+        gop_width: int = 85,
+        gop_height: int = 60,
     ) -> None:
         """Create a subpatch node.
 
@@ -367,19 +371,45 @@ class Subpatch(Node):
             Width of the subpatch canvas (default: 300)
         canvas_height : int
             Height of the subpatch canvas (default: 180)
+        graph_on_parent : bool
+            If True, GUI elements inside the subpatch are visible in the
+            parent patch (default: False)
+        hide_name : bool
+            If True, hide the subpatch name when graph_on_parent is enabled
+            (default: False)
+        gop_width : int
+            Width of the graph-on-parent viewport in pixels (default: 85)
+        gop_height : int
+            Height of the graph-on-parent viewport in pixels (default: 60)
         """
         self.src = src
         self.canvas_width = canvas_width
         self.canvas_height = canvas_height
-        self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "name": name}
+        self.parameters = {
+            "x_pos": x_pos,
+            "y_pos": y_pos,
+            "name": name,
+            "graph_on_parent": graph_on_parent,
+            "hide_name": hide_name,
+            "gop_width": gop_width,
+            "gop_height": gop_height,
+        }
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
 
     def __str__(self) -> str:
         p = self.parameters
+        coords_line = ""
+        if p["graph_on_parent"]:
+            hide_flag = int(p["hide_name"])
+            coords_line = (
+                f"#X coords 0 1 1 0 {p['gop_width']} {p['gop_height']} "
+                f"1 {hide_flag} 0 0;\n"
+            )
         return (
             f"#N canvas 0 0 {self.canvas_width} {self.canvas_height} (subpatch) 0;\n"
             f"{self.src._subpatch_str()}"
+            f"{coords_line}"
             f"#X restore {p['x_pos']} {p['y_pos']} pd {p['name']};\n"
         )
 
@@ -389,9 +419,71 @@ class Subpatch(Node):
 
     @property
     def dimensions(self) -> Tuple[int, int]:
-        label_text = "pd " + self.parameters["name"]
+        p = self.parameters
+        if p["graph_on_parent"]:
+            return (p["gop_width"], p["gop_height"])
+        label_text = "pd " + p["name"]
         x_size = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + len(label_text) * CHAR_WIDTH)
         return (x_size, ROW_HEIGHT)
+
+
+class Abstraction(Node):
+    """Reference to an external .pd file (abstraction).
+
+    In PureData, an abstraction is an object that loads from a .pd file.
+    It appears as a regular object box, e.g. [my-synth 440 0.5].
+    """
+
+    def __init__(
+        self,
+        x_pos: int,
+        y_pos: int,
+        name: str,
+        *args: str,
+        num_inlets: int = 0,
+        num_outlets: int = 0,
+    ) -> None:
+        text = name if not args else f"{name} {' '.join(str(a) for a in args)}"
+        self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": text, "name": name}
+        self.num_inlets = num_inlets
+        self.num_outlets = num_outlets
+
+    def __str__(self) -> str:
+        p = self.parameters
+        return f"#X obj {p['x_pos']} {p['y_pos']} {p['text']};\n"
+
+    def __repr__(self) -> str:
+        p = self.parameters
+        return f"Abstraction({p['x_pos']}, {p['y_pos']}, {p['text']!r})"
+
+    @property
+    def dimensions(self) -> Tuple[int, int]:
+        text = self.parameters["text"]
+        x_size = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + len(text) * CHAR_WIDTH)
+        return (x_size, ROW_HEIGHT)
+
+
+def _infer_abstraction_io(path: str) -> Tuple[int, int]:
+    """Infer inlet/outlet counts from an abstraction's .pd file.
+
+    Counts occurrences of inlet/inlet~ and outlet/outlet~ objects
+    in the PureData file format.
+
+    Parameters
+    ----------
+    path : str
+        Path to the .pd file
+
+    Returns
+    -------
+    tuple of (int, int)
+        (num_inlets, num_outlets)
+    """
+    with open(path) as f:
+        content = f.read()
+    num_inlets = content.count(" inlet;") + content.count(" inlet~;")
+    num_outlets = content.count(" outlet;") + content.count(" outlet~;")
+    return (num_inlets, num_outlets)
 
 
 class Array(Node):
@@ -1663,6 +1755,10 @@ class Patcher:
         canvas_width: int = SUBPATCH_CANVAS_WIDTH,
         canvas_height: int = SUBPATCH_CANVAS_HEIGHT,
         inherit_layout: bool = False,
+        graph_on_parent: bool = False,
+        hide_name: bool = False,
+        gop_width: int = 85,
+        gop_height: int = 60,
     ) -> Subpatch:
         """Add a subpatch to the patch.
 
@@ -1688,6 +1784,20 @@ class Patcher:
 
         inherit_layout : bool, optional
             If True, copy this patch's layout settings to inner patch.
+
+        graph_on_parent : bool, optional
+            If True, GUI elements inside the subpatch are visible in the
+            parent patch (default: False)
+
+        hide_name : bool, optional
+            If True, hide the subpatch name when graph_on_parent is enabled
+            (default: False)
+
+        gop_width : int, optional
+            Width of the graph-on-parent viewport (default: 85)
+
+        gop_height : int, optional
+            Height of the graph-on-parent viewport (default: 60)
 
         Returns
         -------
@@ -1735,6 +1845,67 @@ class Patcher:
             num_outlets,
             canvas_width,
             canvas_height,
+            graph_on_parent=graph_on_parent,
+            hide_name=hide_name,
+            gop_width=gop_width,
+            gop_height=gop_height,
+        )
+        self.nodes.append(node)
+        pos_update(node)
+        return node
+
+    def add_abstraction(
+        self,
+        name: str,
+        *args: str,
+        source_path: Optional[str] = None,
+        num_inlets: Optional[int] = None,
+        num_outlets: Optional[int] = None,
+        new_row: float = 1,
+        new_col: float = 0,
+        x_pos: int = -1,
+        y_pos: int = -1,
+    ) -> Abstraction:
+        """Add an abstraction reference (external .pd file) to the patch.
+
+        Parameters
+        ----------
+        name : str
+            The abstraction name (e.g., 'my-synth')
+
+        *args : str
+            Creation arguments passed to the abstraction
+
+        source_path : str, optional
+            Path to the .pd file. If provided and num_inlets/num_outlets
+            are not specified, inlet/outlet counts will be inferred from
+            the file contents.
+
+        num_inlets : int, optional
+            Number of inlets. If None and source_path is given, inferred
+            from the file. Otherwise defaults to 0.
+
+        num_outlets : int, optional
+            Number of outlets. If None and source_path is given, inferred
+            from the file. Otherwise defaults to 0.
+
+        Returns
+        -------
+        Abstraction
+            The created abstraction reference
+        """
+        if source_path is not None and (num_inlets is None or num_outlets is None):
+            inferred_in, inferred_out = _infer_abstraction_io(source_path)
+            if num_inlets is None:
+                num_inlets = inferred_in
+            if num_outlets is None:
+                num_outlets = inferred_out
+
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
+        node = Abstraction(
+            x_pos, y_pos, name, *args,
+            num_inlets=num_inlets if num_inlets is not None else 0,
+            num_outlets=num_outlets if num_outlets is not None else 0,
         )
         self.nodes.append(node)
         pos_update(node)
