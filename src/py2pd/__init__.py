@@ -23,75 +23,36 @@ AST API example (round-trip):
 
 # Builder API
 from .api import (
-    COLUMN_WIDTH as COLUMN_WIDTH,
-)
-from .api import (
-    DEFAULT_MARGIN as DEFAULT_MARGIN,
-)
-from .api import (
+    Abstraction as Abstraction,
+    CycleWarning as CycleWarning,
+    GridLayoutManager as GridLayoutManager,
+    InvalidConnectionError as InvalidConnectionError,
+    LayoutManager as LayoutManager,
+    NodeNotFoundError as NodeNotFoundError,
+    Patcher as Patcher,
+    PdConnectionError as PdConnectionError,
     # Layout constants
     ROW_HEIGHT as ROW_HEIGHT,
-)
-from .api import (
-    SUBPATCH_CANVAS_HEIGHT as SUBPATCH_CANVAS_HEIGHT,
-)
-from .api import (
+    COLUMN_WIDTH as COLUMN_WIDTH,
+    DEFAULT_MARGIN as DEFAULT_MARGIN,
     SUBPATCH_CANVAS_WIDTH as SUBPATCH_CANVAS_WIDTH,
-)
-from .api import (
-    Abstraction as Abstraction,
-)
-from .api import (
-    CycleWarning as CycleWarning,
-)
-from .api import (
-    GridLayoutManager as GridLayoutManager,
-)
-from .api import (
-    InvalidConnectionError as InvalidConnectionError,
-)
-from .api import (
-    LayoutManager as LayoutManager,
-)
-from .api import (
-    NodeNotFoundError as NodeNotFoundError,
-)
-from .api import (
-    Patcher as Patcher,
-)
-from .api import (
-    PdConnectionError as PdConnectionError,
-)
-from .ast import (
-    ParseError as ParseError,
-)
-from .ast import (
-    from_builder as from_builder,
+    SUBPATCH_CANVAS_HEIGHT as SUBPATCH_CANVAS_HEIGHT,
 )
 
 # AST API (node types available via: from py2pd.ast import PdPatch, PdObj, ...)
 from .ast import (
+    ParseError as ParseError,
+    from_builder as from_builder,
     parse as parse,
-)
-from .ast import (
     parse_file as parse_file,
-)
-from .ast import (
     serialize as serialize,
-)
-from .ast import (
     serialize_to_file as serialize_to_file,
-)
-from .ast import (
     to_builder as to_builder,
 )
+
 from .discover import (
     default_search_paths as default_search_paths,
-)
-from .discover import (
     discover_externals as discover_externals,
-)
-from .discover import (
     extract_declare_paths as extract_declare_paths,
 )
 
@@ -126,4 +87,5 @@ __all__ = [
     "extract_declare_paths",
 ]
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
+

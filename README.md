@@ -119,11 +119,11 @@ from py2pd import Patcher
 p = Patcher('main.pd')
 
 # With explicit inlet/outlet counts
-synth = p.add_abstraction('my-synth', '440', '0.5',
+synth = p.add_abstraction('my-synth 440 0.5',
                           num_inlets=2, num_outlets=1)
 
 # Auto-infer I/O from the source file
-synth = p.add_abstraction('my-synth', '440',
+synth = p.add_abstraction('my-synth 440',
                           source_path='my-synth.pd')
 
 dac = p.add('dac~')

@@ -1413,7 +1413,7 @@ class TestAbstractionBridge:
 
     def test_abstraction_from_builder(self):
         parent = Patcher()
-        parent.add_abstraction("my-synth", "440", x_pos=100, y_pos=200, num_inlets=1)
+        parent.add_abstraction("my-synth 440", x_pos=100, y_pos=200, num_inlets=1)
         ast = from_builder(parent)
         assert len(ast.elements) == 1
         obj = ast.elements[0]
@@ -1440,7 +1440,7 @@ class TestAbstractionBridge:
         regular objects.
         """
         parent = Patcher()
-        parent.add_abstraction("my-synth", "440", x_pos=100, y_pos=200)
+        parent.add_abstraction("my-synth 440", x_pos=100, y_pos=200)
         ast = from_builder(parent)
         rebuilt = to_builder(ast)
         assert len(rebuilt.nodes) == 1

@@ -509,40 +509,54 @@ class Subpatch(Node):
         return (x_size, ROW_HEIGHT)
 
 
-class Abstraction(Node):
+class Abstraction(Obj):
     """Reference to an external .pd file (abstraction).
 
     In PureData, an abstraction is an object that loads from a .pd file.
     It appears as a regular object box, e.g. [my-synth 440 0.5].
+
+    Parameters
+    ----------
+    x_pos : int
+        X position in patch coordinates
+    y_pos : int
+        Y position in patch coordinates
+    text : str
+        Object text (e.g., ``'my-synth 440 0.5'``)
+    num_inlets : int, optional
+        Number of inlets for connection validation
+    num_outlets : int, optional
+        Number of outlets for connection validation
+    source_path : str, optional
+        Path to the .pd file on disk
     """
 
     def __init__(
         self,
         x_pos: int,
         y_pos: int,
-        name: str,
-        *args: str,
-        num_inlets: int = 0,
-        num_outlets: int = 0,
+        text: str,
+        num_inlets: Optional[int] = None,
+        num_outlets: Optional[int] = None,
+        source_path: Optional[str] = None,
     ) -> None:
-        text = name if not args else f"{name} {' '.join(str(a) for a in args)}"
-        self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": text, "name": name}
-        self.num_inlets = num_inlets
-        self.num_outlets = num_outlets
+        super().__init__(x_pos, y_pos, text, num_inlets, num_outlets)
+        self._source_path = source_path
 
-    def __str__(self) -> str:
-        p = self.parameters
-        return f"#X obj {p['x_pos']} {p['y_pos']} {p['text']};\n"
+    @property
+    def name(self) -> str:
+        """The abstraction name (first token of text)."""
+        text = self.parameters["text"]
+        return text.split()[0] if text else ""
+
+    @property
+    def source_path(self) -> Optional[str]:
+        """Path to the .pd file, if known."""
+        return self._source_path
 
     def __repr__(self) -> str:
         p = self.parameters
         return f"Abstraction({p['x_pos']}, {p['y_pos']}, {p['text']!r})"
-
-    @property
-    def dimensions(self) -> Tuple[int, int]:
-        text = self.parameters["text"]
-        x_size = max(MIN_ELEMENT_WIDTH, ELEMENT_PADDING + len(text) * CHAR_WIDTH)
-        return (x_size, ROW_HEIGHT)
 
 
 def _infer_abstraction_io(path: str) -> Tuple[int, int]:
@@ -1841,6 +1855,7 @@ class Patcher:
         self,
         text: str,
         *,
+        source_path: Optional[str] = None,
         new_row: float = 1,
         new_col: float = 0,
         x_pos: int = -1,
@@ -1854,6 +1869,11 @@ class Patcher:
         ----------
         text : str
             The object text (e.g., 'osc~ 440', 'dac~', '+')
+
+        source_path : str, optional
+            Path to an abstraction's .pd file. When provided, creates
+            an ``Abstraction`` instead of a plain ``Obj`` and infers
+            inlet/outlet counts from the file (unless overridden).
 
         new_row : float, optional
             0 to continue current row, 1 to start new row (default).
@@ -1877,7 +1897,7 @@ class Patcher:
         Returns
         -------
         Obj
-            The created object
+            The created object (or ``Abstraction`` if *source_path* given)
 
         Example
         -------
@@ -1887,17 +1907,31 @@ class Patcher:
         >>> p.link(osc, dac)
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
-        node = Obj(x_pos, y_pos, text, num_inlets, num_outlets)
-        # Auto-fill inlet/outlet counts from registry if not explicitly given
-        if num_inlets is None or num_outlets is None:
-            text_parts = text.split()
-            class_name = text_parts[0] if text_parts else ""
-            if class_name in PD_OBJECT_REGISTRY:
-                reg_in, reg_out = PD_OBJECT_REGISTRY[class_name]
+
+        if source_path is not None:
+            # Abstraction: infer I/O from the .pd file when not given
+            if num_inlets is None or num_outlets is None:
+                inferred_in, inferred_out = _infer_abstraction_io(source_path)
                 if num_inlets is None:
-                    node.num_inlets = reg_in
+                    num_inlets = inferred_in
                 if num_outlets is None:
-                    node.num_outlets = reg_out
+                    num_outlets = inferred_out
+            node: Obj = Abstraction(
+                x_pos, y_pos, text, num_inlets, num_outlets, source_path
+            )
+        else:
+            node = Obj(x_pos, y_pos, text, num_inlets, num_outlets)
+            # Auto-fill inlet/outlet counts from registry if not explicitly given
+            if num_inlets is None or num_outlets is None:
+                text_parts = text.split()
+                class_name = text_parts[0] if text_parts else ""
+                if class_name in PD_OBJECT_REGISTRY:
+                    reg_in, reg_out = PD_OBJECT_REGISTRY[class_name]
+                    if num_inlets is None:
+                        node.num_inlets = reg_in
+                    if num_outlets is None:
+                        node.num_outlets = reg_out
+
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -2088,8 +2122,8 @@ class Patcher:
 
     def add_abstraction(
         self,
-        name: str,
-        *args: str,
+        text: str,
+        *,
         source_path: Optional[str] = None,
         num_inlets: Optional[int] = None,
         num_outlets: Optional[int] = None,
@@ -2102,11 +2136,8 @@ class Patcher:
 
         Parameters
         ----------
-        name : str
-            The abstraction name (e.g., 'my-synth')
-
-        *args : str
-            Creation arguments passed to the abstraction
+        text : str
+            The abstraction text (e.g., ``'my-synth 440 0.5'``)
 
         source_path : str, optional
             Path to the .pd file. If provided and num_inlets/num_outlets
@@ -2137,10 +2168,10 @@ class Patcher:
         node = Abstraction(
             x_pos,
             y_pos,
-            name,
-            *args,
+            text,
             num_inlets=num_inlets if num_inlets is not None else 0,
             num_outlets=num_outlets if num_outlets is not None else 0,
+            source_path=source_path,
         )
         self.nodes.append(node)
         pos_update(node)

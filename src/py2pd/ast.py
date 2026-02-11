@@ -1266,16 +1266,7 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
     elements: List[PdElement] = []
 
     for node in patch.nodes:
-        if isinstance(node, api.Abstraction):
-            p = node.parameters
-            pos = Position(p["x_pos"], p["y_pos"])
-            text = p["text"]
-            parts = text.split(None, 1)
-            class_name = parts[0] if parts else ""
-            args = tuple(parts[1].split()) if len(parts) > 1 else ()
-            elements.append(PdObj(pos, class_name, args))
-
-        elif isinstance(node, api.Obj):
+        if isinstance(node, api.Obj):
             text = node.parameters["text"]
             parts = text.split(None, 1)
             class_name = parts[0] if parts else ""

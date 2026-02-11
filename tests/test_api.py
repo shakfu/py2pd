@@ -2179,12 +2179,32 @@ class TestAbstraction:
         assert str(node) == "#X obj 100 200 my-synth;\n"
 
     def test_abstraction_with_args(self):
-        node = Abstraction(100, 200, "my-synth", "440", "0.5")
+        node = Abstraction(100, 200, "my-synth 440 0.5")
         assert str(node) == "#X obj 100 200 my-synth 440 0.5;\n"
 
     def test_abstraction_repr(self):
-        node = Abstraction(100, 200, "my-synth", "440")
+        node = Abstraction(100, 200, "my-synth 440")
         assert repr(node) == "Abstraction(100, 200, 'my-synth 440')"
+
+    def test_abstraction_name_property(self):
+        node = Abstraction(0, 0, "my-synth 440 0.5")
+        assert node.name == "my-synth"
+
+    def test_abstraction_name_no_args(self):
+        node = Abstraction(0, 0, "reverb")
+        assert node.name == "reverb"
+
+    def test_abstraction_source_path(self):
+        node = Abstraction(0, 0, "my-synth", source_path="/tmp/my-synth.pd")
+        assert node.source_path == "/tmp/my-synth.pd"
+
+    def test_abstraction_source_path_default(self):
+        node = Abstraction(0, 0, "my-synth")
+        assert node.source_path is None
+
+    def test_abstraction_is_obj(self):
+        node = Abstraction(0, 0, "my-synth")
+        assert isinstance(node, Obj)
 
     def test_abstraction_dimensions(self):
         node = Abstraction(0, 0, "my-synth")
@@ -2204,10 +2224,10 @@ class TestAbstraction:
 
     def test_add_abstraction_manual_io(self):
         p = Patcher()
-        ab = p.add_abstraction("my-synth", "440", num_inlets=2, num_outlets=1)
+        ab = p.add_abstraction("my-synth 440", num_inlets=2, num_outlets=1)
         assert ab.num_inlets == 2
         assert ab.num_outlets == 1
-        assert ab.parameters["name"] == "my-synth"
+        assert ab.name == "my-synth"
         assert ab.parameters["text"] == "my-synth 440"
 
     def test_add_abstraction_infer_io(self, tmp_path):
@@ -2224,12 +2244,28 @@ class TestAbstraction:
         ab = p.add_abstraction("my-synth", source_path=str(pd_file))
         assert ab.num_inlets == 2
         assert ab.num_outlets == 2
+        assert ab.source_path == str(pd_file)
 
     def test_add_abstraction_default_io(self):
         p = Patcher()
         ab = p.add_abstraction("unknown-abs")
         assert ab.num_inlets == 0
         assert ab.num_outlets == 0
+
+    def test_add_via_source_path(self, tmp_path):
+        """add() with source_path creates an Abstraction."""
+        pd_file = tmp_path / "synth.pd"
+        pd_file.write_text(
+            "#N canvas 0 50 450 300 10;\n"
+            "#X obj 50 50 inlet;\n"
+            "#X obj 50 200 outlet~;\n"
+        )
+        p = Patcher()
+        node = p.add("synth 440", source_path=str(pd_file))
+        assert isinstance(node, Abstraction)
+        assert node.num_inlets == 1
+        assert node.num_outlets == 1
+        assert node.source_path == str(pd_file)
 
     def test_infer_abstraction_io(self, tmp_path):
         pd_file = tmp_path / "test.pd"

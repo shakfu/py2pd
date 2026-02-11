@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3]
+
+### Changed
+
+- **BREAKING**: `Abstraction` now subclasses `Obj` instead of `Node`. Constructor takes a single `text` string (e.g., `Abstraction(0, 0, "my-synth 440 0.5")`) instead of `name, *args`. The `parameters["name"]` key is removed; use the `.name` property instead.
+- **BREAKING**: `add_abstraction()` takes a single `text` string (e.g., `add_abstraction("my-synth 440")`) instead of `name, *args`. All other parameters are keyword-only.
+- `add()` now accepts an optional `source_path` keyword argument. When provided, creates an `Abstraction` (with inferred I/O) instead of a plain `Obj`.
+- `Abstraction` inherits `__str__`, `dimensions`, `__getitem__` from `Obj`. New read-only properties: `.name` (first token of text), `.source_path`.
+- `from_builder()` simplified: removed separate `Abstraction` branch since `isinstance(node, Obj)` now catches both.
+
 ## [0.1.2]
 
 ### Added
@@ -136,6 +146,7 @@ Initial release. A complete rewrite of [puredata-compiler](https://github.com/dy
 - **Exception types**
   - `PdConnectionError`, `NodeNotFoundError`, `InvalidConnectionError`, `CycleWarning`
 
-[Unreleased]: https://github.com/shakfu/py2pd/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/shakfu/py2pd/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/shakfu/py2pd/compare/v0.1.2...v0.2.0
 [0.1.1]: https://github.com/shakfu/py2pd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shakfu/py2pd/releases/tag/v0.1.0
