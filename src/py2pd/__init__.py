@@ -21,39 +21,34 @@ AST API example (round-trip):
   ...     f.write(serialize(ast))
 """
 
-# Builder API
 from .api import (
-    Abstraction as Abstraction,
-    CycleWarning as CycleWarning,
-    GridLayoutManager as GridLayoutManager,
-    InvalidConnectionError as InvalidConnectionError,
-    LayoutManager as LayoutManager,
-    NodeNotFoundError as NodeNotFoundError,
-    Patcher as Patcher,
-    PdConnectionError as PdConnectionError,
-    # Layout constants
-    ROW_HEIGHT as ROW_HEIGHT,
-    COLUMN_WIDTH as COLUMN_WIDTH,
-    DEFAULT_MARGIN as DEFAULT_MARGIN,
-    SUBPATCH_CANVAS_WIDTH as SUBPATCH_CANVAS_WIDTH,
-    SUBPATCH_CANVAS_HEIGHT as SUBPATCH_CANVAS_HEIGHT,
+    COLUMN_WIDTH,
+    DEFAULT_MARGIN,
+    ROW_HEIGHT,
+    SUBPATCH_CANVAS_HEIGHT,
+    SUBPATCH_CANVAS_WIDTH,
+    Abstraction,
+    CycleWarning,
+    GridLayoutManager,
+    InvalidConnectionError,
+    LayoutManager,
+    NodeNotFoundError,
+    Patcher,
+    PdConnectionError,
 )
-
-# AST API (node types available via: from py2pd.ast import PdPatch, PdObj, ...)
 from .ast import (
-    ParseError as ParseError,
-    from_builder as from_builder,
-    parse as parse,
-    parse_file as parse_file,
-    serialize as serialize,
-    serialize_to_file as serialize_to_file,
-    to_builder as to_builder,
+    ParseError,
+    from_builder,
+    parse,
+    parse_file,
+    serialize,
+    serialize_to_file,
+    to_builder,
 )
-
 from .discover import (
-    default_search_paths as default_search_paths,
-    discover_externals as discover_externals,
-    extract_declare_paths as extract_declare_paths,
+    default_search_paths,
+    discover_externals,
+    extract_declare_paths,
 )
 
 __all__ = [
@@ -88,4 +83,3 @@ __all__ = [
 ]
 
 __version__ = "0.1.3"
-

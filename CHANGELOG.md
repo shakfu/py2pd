@@ -9,7 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.3]
 
+### Fixed
+
+- `_infer_abstraction_io()` now uses AST parsing instead of string counting -- previous implementation (`content.count(" inlet;")`) could match inside comments, message boxes, and other non-object text. Now parses the file with `parse()` and counts only top-level `PdObj` nodes with `class_name in {"inlet", "inlet~", "outlet", "outlet~"}`. Subpatch inlets are correctly excluded.
+- `Msg.num_inlets` changed from 1 to 2 -- PureData message boxes have two inlets (hot inlet for triggering, cold inlet for setting contents). The previous value silently allowed invalid connection validation results.
+
 ### Changed
+
+- `Node.__getitem__` now validates the outlet index against `num_outlets` when known. Raises `ValueError` if the index is out of range. Objects with `num_outlets=None` (variable I/O) skip validation.
+- `Patcher.link()` now validates outlet and inlet indices against `num_outlets`/`num_inlets` before creating the connection. Raises `PdConnectionError` for out-of-range indices. Skipped when counts are `None`.
+- `optimize()` Pass 2 (pass-through collapse) replaced O(n*k) list scanning with O(n) dict-based index lookups. Builds `conn_by_source`/`conn_by_sink` dicts up front, collects removals via `id()` set, and applies in a single filter pass.
+- GUI `add_*` methods now forward all constructor parameters to the underlying class. Previously, `add_bang()` exposed 5 of 13 params (missing `hold`, `interrupt`, `label_x`, `label_y`, `font`, `font_size`, `bg_color`, `fg_color`, `label_color`). The same gap existed across all 10 GUI types. All constructor params now have matching keyword arguments with identical defaults.
+- Deduplicated `_walk_builder_nodes` / `_walk_builder_nodes_into` in `hvcc.py` -- the top-level function now delegates to the recursive helper instead of duplicating its body.
 
 - **BREAKING**: `Abstraction` now subclasses `Obj` instead of `Node`. Constructor takes a single `text` string (e.g., `Abstraction(0, 0, "my-synth 440 0.5")`) instead of `name, *args`. The `parameters["name"]` key is removed; use the `.name` property instead.
 - **BREAKING**: `add_abstraction()` takes a single `text` string (e.g., `add_abstraction("my-synth 440")`) instead of `name, *args`. All other parameters are keyword-only.

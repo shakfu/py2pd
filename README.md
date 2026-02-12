@@ -4,6 +4,22 @@ Roundtrip parsing and generation of [pure-data](https://puredata.info) patches f
 
 py2pd is a fork and extensive rewrite of Dylan Burati's [puredata-compiler](https://github.com/dylanburati/puredata-compiler) using some of the ideas from [py2max](https://github.com/shakfu/py2max).
 
+## Features
+
+- **Builder API** -- imperative patch construction with `add()`, `link()`, and automatic layout
+- **AST API** -- lossless round-trip parsing of `.pd` files via frozen dataclasses
+- **Bridging** -- convert freely between Builder and AST with `from_builder()` / `to_builder()`
+- **All GUI types** -- Bang, Toggle, NumberBox, Symbol, HSlider, VSlider, HRadio, VRadio, Canvas, VU
+- **Subpatches** -- nested patches with auto-inferred inlet/outlet counts and graph-on-parent support
+- **Abstractions** -- reference external `.pd` files with auto-inferred I/O
+- **Connection validation** -- eager index checking against a registry of ~80 common Pd objects
+- **Patch optimization** -- deduplicate connections, collapse pass-throughs, remove unused nodes
+- **SVG export** -- visualize patches as SVG
+- **Externals discovery** -- platform-aware scanning for `.pd` abstractions and binary externals
+- **libpd validation** -- load patches into libpd via [cypd](https://github.com/shakfu/cypd) and check for errors (`pip install py2pd[extras]`)
+- **hvcc integration** -- validate and compile patches with the [Heavy Compiler Collection](https://github.com/Wasted-Audio/hvcc) (`pip install py2pd[extras]`)
+- **Zero runtime dependencies** -- Python 3.13+, no required dependencies
+
 ## Install
 
 ```bash
@@ -65,6 +81,8 @@ p.link(gain, dac)              # left channel
 p.link(gain, dac, inlet=1)     # right channel (stereo)
 p.link(trigger, pack, outlet=1, inlet=2)  # specific ports
 ```
+
+Outlet and inlet indices are validated eagerly when the node's I/O counts are known (from `PD_OBJECT_REGISTRY` or explicit `num_inlets`/`num_outlets`). Out-of-range indices raise `PdConnectionError` at `link()` time rather than silently creating invalid connections. Objects with unknown I/O counts (e.g., `trigger`, `pack`, `route`) skip validation.
 
 ### Subpatches
 
@@ -134,6 +152,7 @@ p.link(synth, dac, inlet=1)
 ### Layout Options
 
 **Default layout** - nodes flow top-to-bottom:
+
 ```python
 p = Patcher('patch.pd')
 p.add('osc~ 440')   # Row 1
@@ -142,6 +161,7 @@ p.add('dac~')       # Row 3
 ```
 
 **Grid layout** - organized columns:
+
 ```python
 from py2pd import Patcher, GridLayoutManager
 
@@ -150,6 +170,7 @@ p = Patcher('grid.pd', layout=grid)
 ```
 
 **Auto layout** - arrange by signal flow:
+
 ```python
 p = Patcher('patch.pd')
 # Add nodes in any order...
@@ -186,6 +207,7 @@ result = p.optimize()
 ```
 
 The three passes run in order:
+
 1. **Deduplicate connections** -- removes exact-duplicate patch cords.
 2. **Pass-through collapse** -- bypasses single-in/single-out nodes (opt-in via `collapsible_objects`).
 3. **Unused element removal** -- removes disconnected `Obj` nodes. GUI elements, comments, subpatches, abstractions, arrays, messages, and floats are never removed. Nodes with active send/receive parameters are preserved.
@@ -269,6 +291,8 @@ from py2pd.ast import PdPatch, PdObj, PdMsg, Position, transform, find_objects
 | `add_vradio()` | Vertical radio buttons |
 | `add_canvas()` | Background/label area |
 | `add_vu()` | VU meter |
+
+All GUI `add_*` methods accept every parameter from the underlying constructor, including IEM styling options (`label_x`, `label_y`, `font`, `font_size`, `bg_color`, `fg_color`, `label_color`, etc.). Defaults match PureData's standard values.
 
 ## Discovery
 
@@ -364,9 +388,11 @@ if not result.ok:
 
 ```python
 from py2pd import (
-    PdConnectionError,      # Invalid connection arguments
+    PdConnectionError,      # Invalid connection arguments (including out-of-range indices)
     NodeNotFoundError,      # Node not in patch
-    InvalidConnectionError, # Bad inlet/outlet index
+    InvalidConnectionError, # Bad inlet/outlet index (from validate_connections)
     CycleWarning,           # Feedback loop detected
 )
 ```
+
+`PdConnectionError` is raised eagerly by `link()` when outlet or inlet indices exceed the node's known I/O counts. `Node.__getitem__` (e.g., `osc[2]`) raises `ValueError` for out-of-range outlet indices. Both checks are skipped for objects with unknown counts (`num_outlets=None` / `num_inlets=None`).

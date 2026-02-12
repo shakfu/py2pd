@@ -1,7 +1,7 @@
-import re
-import warnings
 from collections import deque
+import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
+import warnings
 
 # Layout constants (pixels)
 ROW_HEIGHT = 25
@@ -142,6 +142,11 @@ class Node:
             raise TypeError(f"Outlet index must be int, not {type(key).__name__}")
         if key < 0:
             raise ValueError(f"Outlet index must be non-negative, got {key}")
+        if self.num_outlets is not None and key >= self.num_outlets:
+            raise ValueError(
+                f"Outlet index {key} out of range for {self!r} "
+                f"(has {self.num_outlets} outlet{'s' if self.num_outlets != 1 else ''})"
+            )
         return Node.Outlet(self, key)
 
     @property
@@ -235,7 +240,7 @@ class Msg(Node):
     text : str
         Message content. Will be escaped for the PureData file format.
     num_inlets : int, optional
-        Number of inlets (default: 1)
+        Number of inlets (default: 2 -- hot inlet + cold inlet for setting contents)
     num_outlets : int, optional
         Number of outlets (default: 1)
     """
@@ -245,7 +250,7 @@ class Msg(Node):
         x_pos: int,
         y_pos: int,
         text: str,
-        num_inlets: Optional[int] = 1,
+        num_inlets: Optional[int] = 2,
         num_outlets: Optional[int] = 1,
     ) -> None:
         self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": escape(text)}
@@ -284,9 +289,9 @@ class Float(Node):
         Y position in patch coordinates
     width : int
         Display width in characters (default: 5)
-    upper_limit : int
+    upper_limit : float
         Maximum value; 0 means no limit (default: 0)
-    lower_limit : int
+    lower_limit : float
         Minimum value; 0 means no limit (default: 0)
     label : str
         Label text (default: ``'-'`` for none)
@@ -301,8 +306,8 @@ class Float(Node):
         x_pos: int,
         y_pos: int,
         width: int = 5,
-        upper_limit: int = 0,
-        lower_limit: int = 0,
+        upper_limit: float = 0,
+        lower_limit: float = 0,
         label: str = "-",
         receive: str = "-",
         send: str = "-",
@@ -562,8 +567,9 @@ class Abstraction(Obj):
 def _infer_abstraction_io(path: str) -> Tuple[int, int]:
     """Infer inlet/outlet counts from an abstraction's .pd file.
 
-    Counts occurrences of inlet/inlet~ and outlet/outlet~ objects
-    in the PureData file format.
+    Parses the file as a PdPatch and counts top-level inlet/inlet~ and
+    outlet/outlet~ objects.  Only top-level elements are considered --
+    inlets inside subpatches belong to those subpatches.
 
     Parameters
     ----------
@@ -575,10 +581,19 @@ def _infer_abstraction_io(path: str) -> Tuple[int, int]:
     tuple of (int, int)
         (num_inlets, num_outlets)
     """
+    from .ast import PdObj, parse
+
     with open(path) as f:
         content = f.read()
-    num_inlets = content.count(" inlet;") + content.count(" inlet~;")
-    num_outlets = content.count(" outlet;") + content.count(" outlet~;")
+    patch = parse(content)
+    num_inlets = 0
+    num_outlets = 0
+    for elem in patch.elements:
+        if isinstance(elem, PdObj):
+            if elem.class_name in {"inlet", "inlet~"}:
+                num_inlets += 1
+            elif elem.class_name in {"outlet", "outlet~"}:
+                num_outlets += 1
     return (num_inlets, num_outlets)
 
 
@@ -1916,9 +1931,7 @@ class Patcher:
                     num_inlets = inferred_in
                 if num_outlets is None:
                     num_outlets = inferred_out
-            node: Obj = Abstraction(
-                x_pos, y_pos, text, num_inlets, num_outlets, source_path
-            )
+            node: Obj = Abstraction(x_pos, y_pos, text, num_inlets, num_outlets, source_path)
         else:
             node = Obj(x_pos, y_pos, text, num_inlets, num_outlets)
             # Auto-fill inlet/outlet counts from registry if not explicitly given
@@ -1967,8 +1980,8 @@ class Patcher:
         self,
         *,
         width: int = 5,
-        upper_limit: int = 0,
-        lower_limit: int = 0,
+        upper_limit: float = 0,
+        lower_limit: float = 0,
         label: str = "-",
         receive: str = "-",
         send: str = "-",
@@ -2209,18 +2222,24 @@ class Patcher:
         x_pos: int = -1,
         y_pos: int = -1,
         size: int = IEM_DEFAULT_SIZE,
+        hold: int = 250,
+        interrupt: int = 50,
         init: int = 0,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 17,
+        label_y: int = 7,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
     ) -> Bang:
         """Create a bang button and add it to the patch.
 
         Parameters
         ----------
-        \\*connections : Node.Outlet or tuple of Node.Outlet
-            Zero or more outlets to connect to the bang's inlet
-
         size : int
             Width and height in pixels (default: 15)
 
@@ -2242,7 +2261,24 @@ class Patcher:
             The created bang button
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
-        node = Bang(x_pos, y_pos, size=size, init=init, send=send, receive=receive, label=label)
+        node = Bang(
+            x_pos,
+            y_pos,
+            size=size,
+            hold=hold,
+            interrupt=interrupt,
+            init=init,
+            send=send,
+            receive=receive,
+            label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+        )
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -2259,6 +2295,14 @@ class Patcher:
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 17,
+        label_y: int = 7,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        init_value: int = 0,
         default_value: int = 1,
     ) -> Toggle:
         """Create a toggle button and add it to the patch.
@@ -2288,6 +2332,14 @@ class Patcher:
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+            init_value=init_value,
             default_value=default_value,
         )
         self.nodes.append(node)
@@ -2302,6 +2354,9 @@ class Patcher:
         x_pos: int = -1,
         y_pos: int = -1,
         width: int = 10,
+        lower_limit: float = 0,
+        upper_limit: float = 0,
+        label_pos: int = 0,
         label: str = "-",
         send: str = "-",
         receive: str = "-",
@@ -2319,7 +2374,17 @@ class Patcher:
             The created symbol box
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
-        node = Symbol(x_pos, y_pos, width=width, label=label, send=send, receive=receive)
+        node = Symbol(
+            x_pos,
+            y_pos,
+            width=width,
+            lower_limit=lower_limit,
+            upper_limit=upper_limit,
+            label_pos=label_pos,
+            label=label,
+            send=send,
+            receive=receive,
+        )
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -2335,10 +2400,20 @@ class Patcher:
         height: int = 14,
         min_val: float = -1e37,
         max_val: float = 1e37,
+        log_flag: int = 0,
         init: int = 0,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 0,
+        label_y: int = -8,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        init_value: float = 0,
+        log_height: int = 256,
     ) -> NumberBox:
         """Create an IEM number box and add it to the patch.
 
@@ -2371,10 +2446,20 @@ class Patcher:
             height=height,
             min_val=min_val,
             max_val=max_val,
+            log_flag=log_flag,
             init=init,
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+            init_value=init_value,
+            log_height=log_height,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2391,10 +2476,20 @@ class Patcher:
         height: int = 128,
         min_val: float = 0,
         max_val: float = 127,
+        log_flag: int = 0,
         init: int = 0,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 0,
+        label_y: int = -9,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        init_value: float = 0,
+        steady: int = 1,
     ) -> VSlider:
         """Create a vertical slider and add it to the patch.
 
@@ -2425,10 +2520,20 @@ class Patcher:
             height=height,
             min_val=min_val,
             max_val=max_val,
+            log_flag=log_flag,
             init=init,
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+            init_value=init_value,
+            steady=steady,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2445,10 +2550,20 @@ class Patcher:
         height: int = 15,
         min_val: float = 0,
         max_val: float = 127,
+        log_flag: int = 0,
         init: int = 0,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = -2,
+        label_y: int = -8,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        init_value: float = 0,
+        steady: int = 1,
     ) -> HSlider:
         """Create a horizontal slider and add it to the patch.
 
@@ -2479,10 +2594,20 @@ class Patcher:
             height=height,
             min_val=min_val,
             max_val=max_val,
+            log_flag=log_flag,
             init=init,
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+            init_value=init_value,
+            steady=steady,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2496,11 +2621,20 @@ class Patcher:
         x_pos: int = -1,
         y_pos: int = -1,
         size: int = 15,
+        new_old: int = 0,
         number: int = 8,
         init: int = 0,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 0,
+        label_y: int = -8,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        init_value: int = 0,
     ) -> VRadio:
         """Create vertical radio buttons and add to the patch.
 
@@ -2522,11 +2656,20 @@ class Patcher:
             x_pos,
             y_pos,
             size=size,
+            new_old=new_old,
             number=number,
             init=init,
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+            init_value=init_value,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2540,11 +2683,20 @@ class Patcher:
         x_pos: int = -1,
         y_pos: int = -1,
         size: int = 15,
+        new_old: int = 0,
         number: int = 8,
         init: int = 0,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 0,
+        label_y: int = -8,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        fg_color: int = IEM_FG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        init_value: int = 0,
     ) -> HRadio:
         """Create horizontal radio buttons and add to the patch.
 
@@ -2566,11 +2718,20 @@ class Patcher:
             x_pos,
             y_pos,
             size=size,
+            new_old=new_old,
             number=number,
             init=init,
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            label_color=label_color,
+            init_value=init_value,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2583,12 +2744,18 @@ class Patcher:
         new_col: float = 0,
         x_pos: int = -1,
         y_pos: int = -1,
+        size: int = 15,
         width: int = 100,
         height: int = 60,
         send: str = "empty",
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = 20,
+        label_y: int = 12,
+        font: int = 0,
+        font_size: int = 14,
         bg_color: int = -233017,
+        label_color: int = IEM_LABEL_COLOR,
     ) -> Canvas:
         """Create a canvas/background rectangle and add to the patch.
 
@@ -2618,12 +2785,18 @@ class Patcher:
         node = Canvas(
             x_pos,
             y_pos,
+            size=size,
             width=width,
             height=height,
             send=send,
             receive=receive,
             label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
             bg_color=bg_color,
+            label_color=label_color,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2640,6 +2813,13 @@ class Patcher:
         height: int = 120,
         receive: str = "empty",
         label: str = "empty",
+        label_x: int = -1,
+        label_y: int = -8,
+        font: int = 0,
+        font_size: int = 10,
+        bg_color: int = IEM_BG_COLOR,
+        label_color: int = IEM_LABEL_COLOR,
+        scale: int = 1,
     ) -> VU:
         """Create a VU meter and add to the patch.
 
@@ -2661,7 +2841,21 @@ class Patcher:
             The created VU meter
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
-        node = VU(x_pos, y_pos, width=width, height=height, receive=receive, label=label)
+        node = VU(
+            x_pos,
+            y_pos,
+            width=width,
+            height=height,
+            receive=receive,
+            label=label,
+            label_x=label_x,
+            label_y=label_y,
+            font=font,
+            font_size=font_size,
+            bg_color=bg_color,
+            label_color=label_color,
+            scale=scale,
+        )
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -2715,6 +2909,17 @@ class Patcher:
             sink_index = self.nodes.index(sink)
         except ValueError:
             raise NodeNotFoundError(f"Sink node {sink!r} not found in patch")
+
+        if source.num_outlets is not None and outlet >= source.num_outlets:
+            raise PdConnectionError(
+                f"Outlet index {outlet} out of range for {source!r} "
+                f"(has {source.num_outlets} outlet{'s' if source.num_outlets != 1 else ''})"
+            )
+        if sink.num_inlets is not None and inlet >= sink.num_inlets:
+            raise PdConnectionError(
+                f"Inlet index {inlet} out of range for {sink!r} "
+                f"(has {sink.num_inlets} inlet{'s' if sink.num_inlets != 1 else ''})"
+            )
 
         self.connections.append(Connection(source_index, outlet, sink_index, inlet))
 
@@ -3261,6 +3466,16 @@ class Patcher:
         # --- Pass 2: Pass-through collapse ---
         removal_set: Set[int] = set()
         if collapsible_objects:
+            # Build inverse indices for O(1) lookup
+            conn_by_sink: Dict[int, List[Connection]] = {}
+            conn_by_source: Dict[int, List[Connection]] = {}
+            for c in self.connections:
+                conn_by_sink.setdefault(c.sink, []).append(c)
+                conn_by_source.setdefault(c.source, []).append(c)
+
+            conns_to_remove: Set[int] = set()  # id() of connections to remove
+            conns_to_add: List[Connection] = []
+
             for idx, node in enumerate(self.nodes):
                 if not isinstance(node, Obj):
                     continue
@@ -3275,21 +3490,24 @@ class Patcher:
                 if node.num_inlets != 1 or node.num_outlets != 1:
                     continue
                 # Find incoming and outgoing connections
-                incoming = [c for c in self.connections if c.sink == idx]
-                outgoing = [c for c in self.connections if c.source == idx]
+                incoming = conn_by_sink.get(idx, [])
+                outgoing = conn_by_source.get(idx, [])
                 if len(incoming) != 1 or len(outgoing) != 1:
                     continue
                 # Bypass: connect predecessor directly to successor
                 inc = incoming[0]
                 out = outgoing[0]
-                self.connections.append(
+                conns_to_add.append(
                     Connection(inc.source, inc.outlet_index, out.sink, out.inlet_index)
                 )
-                # Remove the two old connections
-                self.connections.remove(inc)
-                self.connections.remove(out)
+                conns_to_remove.add(id(inc))
+                conns_to_remove.add(id(out))
                 removal_set.add(idx)
                 stats["pass_throughs_collapsed"] += 1
+
+            self.connections = [
+                c for c in self.connections if id(c) not in conns_to_remove
+            ] + conns_to_add
 
         # --- Pass 3: Unused element removal ---
         connected_nodes: Set[int] = set()
@@ -3309,13 +3527,9 @@ class Patcher:
             removal_set.add(idx)
 
         stats["nodes_removed"] = len(removal_set)
-        stats["connections_removed"] = (
-            initial_connection_count - len(self.connections) + stats["duplicates_removed"]
-        )
 
         self._remap_after_removal(removal_set)
 
-        # Recount connections_removed after remap (some may have been dropped)
         stats["connections_removed"] = initial_connection_count - len(self.connections)
 
         return stats

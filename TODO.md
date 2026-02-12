@@ -19,18 +19,21 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 ### Audio Objects (~)
 
 **Oscillators:**
+
 - [ ] `osc~` - Cosine oscillator
 - [ ] `phasor~` - Sawtooth oscillator (0-1 ramp)
 - [ ] `noise~` - White noise
 - [ ] `tabosc4~` - 4-point interpolating table oscillator
 
 **Math:**
+
 - [ ] `+~`, `-~`, `*~`, `/~` - Arithmetic
 - [ ] `cos~`, `sin~` - Trigonometry
 - [ ] `sqrt~`, `abs~`, `wrap~`, `clip~` - Utilities
 - [ ] `pow~`, `log~`, `exp~` - Exponential
 
 **Filters:**
+
 - [ ] `lop~` - Low-pass filter
 - [ ] `hip~` - High-pass filter
 - [ ] `bp~` - Band-pass filter
@@ -39,12 +42,14 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `slop~` - Slew-limited low-pass
 
 **Delays:**
+
 - [ ] `delwrite~` - Delay line write
 - [ ] `delread~` - Delay line read
 - [ ] `delread4~` - 4-point interpolating delay read
 - [ ] `vd~` - Variable delay read
 
 **I/O:**
+
 - [ ] `adc~` - Audio input
 - [ ] `dac~` - Audio output
 - [ ] `readsf~` - Read sound file
@@ -52,6 +57,7 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `soundfiler` - Load/save audio files
 
 **Envelope/Control:**
+
 - [ ] `line~` - Linear ramp generator
 - [ ] `vline~` - Sample-accurate line
 - [ ] `env~` - Envelope follower
@@ -59,12 +65,14 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `samphold~` - Sample and hold
 
 **FFT:**
+
 - [ ] `fft~`, `ifft~` - Complex FFT
 - [ ] `rfft~`, `rifft~` - Real FFT
 - [ ] `block~` - Set block size
 - [ ] `switch~` - DSP on/off
 
 **Tables:**
+
 - [ ] `tabread~` - Read from table (non-interpolating)
 - [ ] `tabread4~` - Read from table (4-point interpolating)
 - [ ] `tabwrite~` - Write to table
@@ -73,6 +81,7 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 ### Control Objects
 
 **Math:**
+
 - [ ] `+`, `-`, `*`, `/` - Arithmetic
 - [ ] `mod`, `div` - Integer math
 - [ ] `pow`, `log`, `exp` - Exponential
@@ -81,10 +90,12 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `random`, `expr` - Random, expressions
 
 **Logic:**
+
 - [ ] `==`, `!=`, `>`, `<`, `>=`, `<=` - Comparison
 - [ ] `&&`, `||` - Boolean logic
 
 **Routing:**
+
 - [ ] `trigger` / `t` - Trigger multiple outputs
 - [ ] `pack`, `unpack` - Pack/unpack lists
 - [ ] `route` - Route by first element
@@ -94,6 +105,7 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `moses` - Split numbers by threshold
 
 **Time:**
+
 - [ ] `delay` - Delay message
 - [ ] `metro` - Metronome
 - [ ] `timer` - Measure time
@@ -101,6 +113,7 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `line` - Linear ramp (control rate)
 
 **Data:**
+
 - [ ] `float` / `f` - Store float
 - [ ] `int` / `i` - Store integer
 - [ ] `symbol` - Store symbol
@@ -109,17 +122,20 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `text` - Text buffer
 
 **Arrays:**
+
 - [ ] `array` - Array operations
 - [ ] `tabread` - Read from array (control)
 - [ ] `tabwrite` - Write to array (control)
 - [ ] `soundfiler` - Load/save audio
 
 **Send/Receive:**
+
 - [ ] `send` / `s` - Send to named receiver
 - [ ] `receive` / `r` - Receive from named sender
 - [ ] `throw~`, `catch~` - Audio send/receive
 
 **MIDI:**
+
 - [ ] `notein`, `noteout` - MIDI notes
 - [ ] `ctlin`, `ctlout` - Control change
 - [ ] `bendin`, `bendout` - Pitch bend
@@ -129,6 +145,7 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] `makenote`, `stripnote` - Note utilities
 
 **Misc:**
+
 - [ ] `bang`, `loadbang` - Bang messages
 - [ ] `print` - Print to console
 - [ ] `inlet`, `outlet` - Subpatch I/O
@@ -138,6 +155,10 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 
 ## Bug Fixes / Correctness
 
+- [x] `rename_sends_receives()` ignores all GUI types -- only handles `PdFloatAtom` and `PdObj`; all 10 IEM GUI types (`PdBng`, `PdTgl`, `PdNbx`, `PdVsl`, `PdHsl`, `PdVradio`, `PdHradio`, `PdCnv`, `PdVu`) and `PdSymbolAtom` have send/receive fields that are silently left unchanged
+- [x] `to_builder()` truncates float bounds on `PdFloatAtom` -- `int(elem.upper_limit)` / `int(elem.lower_limit)` loses precision; builder `Float` class should accept `float` limits to match AST
+- [x] `optimize()` dead stats code -- lines 3310-3312 compute `connections_removed` but are immediately overwritten by line 3317 after `_remap_after_removal`
+- [x] Stale docstring in `add_bang()` -- documents a `*connections` parameter that doesn't exist in the signature
 - [x] `to_builder()`: `PdSymbolAtom` converts to generic Obj instead of proper `Symbol` node
 - [x] `to_builder()`: `PdText` converts to `Obj("text {content}")`, loses type info on round-trip
 - [x] `_parse_canvas` subpatch detection: `not tokens[6].isdigit()` misidentifies subpatches named with numeric strings (e.g., `pd 42`)
@@ -153,7 +174,15 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [ ] Pd-extended / Purr Data compatibility
 - [x] libpd integration for patch validation
 - [x] hvcc (Heavy Compiler Collection) integration
-- [ ] Patch optimization (unused element removal, connection simplification)
+- [x] Patch optimization (unused element removal, connection simplification)
+
+## Robustness / Hardening
+
+- [x] `_infer_abstraction_io()` uses string counting (`content.count(" inlet;")`) instead of parsing -- counts matches in comments and message boxes; should use `parse()` to walk the AST
+- [x] Deduplicate `_walk_builder_nodes` / `_walk_builder_nodes_into` in `hvcc.py` -- bodies are identical; top-level function should just call the recursive helper
+- [x] GUI `add_*` methods don't forward all constructor params -- e.g. `add_bang()` exposes 5 of 13 params (missing `hold`, `interrupt`, `label_x`, `label_y`, `font`, `font_size`, `bg_color`, `fg_color`, `label_color`); same pattern across all GUI types
+- [x] No early validation of outlet/inlet indices -- `Node.__getitem__` doesn't check `key < num_outlets`, and `link()` doesn't validate indices are in range; invalid connections are silent until `validate_connections()` is called
+- [x] `O(n*k)` connection scanning in `optimize()` pass-through collapse -- scans all connections per collapsible node and uses `list.remove()`; build a source/sink index dict for O(n+k)
 
 ## Testing
 
@@ -170,11 +199,11 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
   - [x] Outlet indices meaning for different object types
   - [x] PureData format details
   - [x] Error conditions and how to handle them
-- [ ] Architecture Documentation
-  - [ ] Class diagrams
-  - [ ] Data flow explanations
-  - [ ] Design decision rationale
-  - [ ] Extension points
+- [x] Architecture Documentation
+  - [x] Class diagrams
+  - [x] Data flow explanations
+  - [x] Design decision rationale
+  - [x] Extension points
 
 ## Code Quality
 

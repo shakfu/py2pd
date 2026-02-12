@@ -15,9 +15,9 @@ Usage::
     assert result.ok
 """
 
+from dataclasses import dataclass, field
 import os
 import tempfile
-from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
 from ..api import Patcher

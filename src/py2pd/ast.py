@@ -15,7 +15,7 @@ Example usage:
     ...     f.write(serialize(ast))
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 if TYPE_CHECKING:
@@ -1607,8 +1607,8 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                 elem.position.x,
                 elem.position.y,
                 elem.width,
-                int(elem.upper_limit),
-                int(elem.lower_limit),
+                elem.upper_limit,
+                elem.lower_limit,
                 elem.label,
                 elem.receive,
                 elem.send,
@@ -1971,6 +1971,18 @@ def rename_sends_receives(patch: PdPatch, old_name: str, new_name: str) -> PdPat
         A new patch with renamed symbols
     """
 
+    _GUI_WITH_SEND_RECEIVE_LABEL = (
+        PdSymbolAtom,
+        PdBng,
+        PdTgl,
+        PdNbx,
+        PdVsl,
+        PdHsl,
+        PdVradio,
+        PdHradio,
+        PdCnv,
+    )
+
     def rename(elem: PdElement) -> Optional[PdElement]:
         if isinstance(elem, PdFloatAtom):
             return PdFloatAtom(
@@ -1982,6 +1994,19 @@ def rename_sends_receives(patch: PdPatch, old_name: str, new_name: str) -> PdPat
                 new_name if elem.label == old_name else elem.label,
                 new_name if elem.receive == old_name else elem.receive,
                 new_name if elem.send == old_name else elem.send,
+            )
+        elif isinstance(elem, _GUI_WITH_SEND_RECEIVE_LABEL):
+            return replace(
+                elem,
+                send=new_name if elem.send == old_name else elem.send,
+                receive=new_name if elem.receive == old_name else elem.receive,
+                label=new_name if elem.label == old_name else elem.label,
+            )
+        elif isinstance(elem, PdVu):
+            return replace(
+                elem,
+                receive=new_name if elem.receive == old_name else elem.receive,
+                label=new_name if elem.label == old_name else elem.label,
             )
         elif isinstance(elem, PdObj):
             # Check for send/receive objects

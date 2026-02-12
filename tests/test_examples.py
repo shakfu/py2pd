@@ -1,7 +1,7 @@
 """Integration tests for example.py functions."""
 
-import sys
 from pathlib import Path
+import sys
 
 # Add the examples directory to the path so we can import example.py
 sys.path.insert(0, str(Path(__file__).parent / "examples"))

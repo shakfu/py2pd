@@ -25,11 +25,11 @@ Usage::
     assert result.ok
 """
 
+from dataclasses import dataclass, field
+from enum import Enum
 import os
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Optional, Sequence, Union
 
 from ..api import LayoutManager, Obj, Patcher, Subpatch
@@ -317,15 +317,7 @@ def _check_object_supported(
 def _walk_builder_nodes(patch: Patcher) -> list[str]:
     """Extract object class names from a Patcher, recursing into subpatches."""
     names: list[str] = []
-    for node in patch.nodes:
-        if isinstance(node, Subpatch):
-            _walk_builder_nodes_into(node.src, names)
-            continue
-        if isinstance(node, Obj):
-            text = node.parameters.get("text", "")
-            parts = text.split()
-            if parts:
-                names.append(parts[0])
+    _walk_builder_nodes_into(patch, names)
     return names
 
 
@@ -438,6 +430,7 @@ class HeavyPatcher(Patcher):
         self,
         text: str,
         *,
+        source_path: Optional[str] = None,
         new_row: float = 1,
         new_col: float = 0,
         x_pos: int = -1,
@@ -469,6 +462,7 @@ class HeavyPatcher(Patcher):
             raise HvccUnsupportedError([class_name])
         return super().add(
             text,
+            source_path=source_path,
             new_row=new_row,
             new_col=new_col,
             x_pos=x_pos,

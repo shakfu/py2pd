@@ -292,6 +292,14 @@ class TestFloat:
         assert "50" in repr_str
         assert "60" in repr_str
 
+    def test_float_limits(self):
+        fa = Float(0, 0, upper_limit=99.7, lower_limit=0.5)
+        assert fa.parameters["upper_limit"] == 99.7
+        assert fa.parameters["lower_limit"] == 0.5
+        result = str(fa)
+        assert "99.7" in result
+        assert "0.5" in result
+
 
 class TestSubpatch:
     """Tests for Subpatch class."""
@@ -1283,7 +1291,7 @@ class TestNodeInletOutletCounts:
 
     def test_msg_default_counts(self):
         msg = Msg(0, 0, "bang")
-        assert msg.num_inlets == 1
+        assert msg.num_inlets == 2  # hot inlet + cold inlet
         assert msg.num_outlets == 1
 
     def test_floatatom_default_counts(self):
@@ -1868,8 +1876,8 @@ class TestAutoLayout:
     def test_auto_layout_self_loop(self):
         """auto_layout must terminate when a node connects to itself."""
         patch = Patcher()
-        a = patch.add("delwrite~ loop 1000")
-        b = patch.add("delread~ loop 500")
+        a = patch.add("send_obj", num_inlets=1, num_outlets=1)
+        b = patch.add("recv_obj", num_inlets=1, num_outlets=1)
         patch.link(a, b)
         patch.link(b, a)  # feedback loop
         patch.auto_layout()
@@ -1949,9 +1957,9 @@ class TestLinkWithOutlet:
 
     def test_link_with_outlet_non_zero(self):
         patch = Patcher()
-        osc = patch.add("osc~ 440")
+        obj = patch.add("unknown_multi_out", num_outlets=3)
         dac = patch.add("dac~")
-        patch.link(osc[1], dac)
+        patch.link(obj[1], dac)
         conn = patch.connections[0]
         assert conn.outlet_index == 1
 
@@ -1967,9 +1975,9 @@ class TestLinkWithOutlet:
     def test_link_outlet_overrides_outlet_kwarg(self):
         """When an Outlet is passed, its index is used (outlet kwarg ignored)."""
         patch = Patcher()
-        osc = patch.add("osc~ 440")
+        obj = patch.add("unknown_multi_out", num_outlets=5)
         dac = patch.add("dac~")
-        patch.link(osc[2], dac, outlet=99)
+        patch.link(obj[2], dac, outlet=99)
         conn = patch.connections[0]
         assert conn.outlet_index == 2
 
@@ -2256,9 +2264,7 @@ class TestAbstraction:
         """add() with source_path creates an Abstraction."""
         pd_file = tmp_path / "synth.pd"
         pd_file.write_text(
-            "#N canvas 0 50 450 300 10;\n"
-            "#X obj 50 50 inlet;\n"
-            "#X obj 50 200 outlet~;\n"
+            "#N canvas 0 50 450 300 10;\n#X obj 50 50 inlet;\n#X obj 50 200 outlet~;\n"
         )
         p = Patcher()
         node = p.add("synth 440", source_path=str(pd_file))
@@ -2681,9 +2687,11 @@ class TestOptimize:
 
     def test_recursive_subpatch_optimization(self):
         inner = Patcher()
+        inlet_obj = inner.add("inlet")
         ia = inner.add("osc~ 440")
         ib = inner.add("dac~")
         inner.add("abs")  # unused
+        inner.link(inlet_obj, ia)
         inner.link(ia, ib)
 
         p = Patcher()
@@ -2692,7 +2700,7 @@ class TestOptimize:
         p.link(a, sp)
         result = p.optimize(recursive=True)
         assert result["subpatches_optimized"] == 1
-        assert len(inner.nodes) == 2  # abs removed from inner
+        assert len(inner.nodes) == 3  # abs removed from inner
 
     # -- Edge cases --
 
@@ -2744,3 +2752,273 @@ class TestOptimize:
         assert result["nodes_removed"] == 1
         # 2 original connections, 1 surviving = 1 removed
         assert result["connections_removed"] == 1
+
+
+class TestInferAbstractionIOAST:
+    """Tests for AST-based _infer_abstraction_io robustness."""
+
+    def test_infer_ignores_inlet_in_comment(self, tmp_path):
+        pd_file = tmp_path / "test.pd"
+        pd_file.write_text(
+            "#N canvas 0 50 450 300 10;\n#X text 10 10 this mentions inlet;\n#X obj 10 50 outlet;\n"
+        )
+        num_in, num_out = _infer_abstraction_io(str(pd_file))
+        assert num_in == 0
+        assert num_out == 1
+
+    def test_infer_ignores_inlet_in_msg(self, tmp_path):
+        pd_file = tmp_path / "test.pd"
+        pd_file.write_text(
+            "#N canvas 0 50 450 300 10;\n#X msg 10 10 outlet;\n#X obj 10 50 inlet;\n"
+        )
+        num_in, num_out = _infer_abstraction_io(str(pd_file))
+        assert num_in == 1
+        assert num_out == 0
+
+    def test_infer_ignores_subpatch_inlets(self, tmp_path):
+        pd_file = tmp_path / "test.pd"
+        pd_file.write_text(
+            "#N canvas 0 50 450 300 10;\n"
+            "#X obj 10 10 inlet;\n"
+            "#N canvas 0 0 450 300 sub 0;\n"
+            "#X obj 10 10 inlet;\n"
+            "#X obj 10 50 outlet;\n"
+            "#X restore 100 100 pd sub;\n"
+            "#X obj 10 200 outlet;\n"
+        )
+        num_in, num_out = _infer_abstraction_io(str(pd_file))
+        assert num_in == 1
+        assert num_out == 1
+
+
+class TestGUIParamForwarding:
+    """Tests that add_* methods forward all constructor params."""
+
+    def test_bang_forwarding(self):
+        p = Patcher()
+        node = p.add_bang(
+            hold=100,
+            interrupt=25,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+        )
+        assert node.parameters["hold"] == 100
+        assert node.parameters["interrupt"] == 25
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["label_y"] == 3
+        assert node.parameters["font"] == 1
+        assert node.parameters["font_size"] == 12
+        assert node.parameters["bg_color"] == -1
+        assert node.parameters["fg_color"] == -2
+        assert node.parameters["label_color"] == -3
+
+    def test_toggle_forwarding(self):
+        p = Patcher()
+        node = p.add_toggle(
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+            init_value=7,
+        )
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["label_y"] == 3
+        assert node.parameters["font"] == 1
+        assert node.parameters["font_size"] == 12
+        assert node.parameters["bg_color"] == -1
+        assert node.parameters["fg_color"] == -2
+        assert node.parameters["label_color"] == -3
+        assert node.parameters["init_value"] == 7
+
+    def test_symbol_forwarding(self):
+        p = Patcher()
+        node = p.add_symbol(lower_limit=1.0, upper_limit=100.0, label_pos=2)
+        assert node.parameters["lower_limit"] == 1.0
+        assert node.parameters["upper_limit"] == 100.0
+        assert node.parameters["label_pos"] == 2
+
+    def test_numberbox_forwarding(self):
+        p = Patcher()
+        node = p.add_numberbox(
+            log_flag=1,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+            init_value=42.0,
+            log_height=512,
+        )
+        assert node.parameters["log_flag"] == 1
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["font"] == 1
+        assert node.parameters["font_size"] == 12
+        assert node.parameters["bg_color"] == -1
+        assert node.parameters["fg_color"] == -2
+        assert node.parameters["label_color"] == -3
+        assert node.parameters["init_value"] == 42.0
+        assert node.parameters["log_height"] == 512
+
+    def test_vslider_forwarding(self):
+        p = Patcher()
+        node = p.add_vslider(
+            log_flag=1,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+            init_value=50.0,
+            steady=0,
+        )
+        assert node.parameters["log_flag"] == 1
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["init_value"] == 50.0
+        assert node.parameters["steady"] == 0
+
+    def test_hslider_forwarding(self):
+        p = Patcher()
+        node = p.add_hslider(
+            log_flag=1,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+            init_value=50.0,
+            steady=0,
+        )
+        assert node.parameters["log_flag"] == 1
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["init_value"] == 50.0
+        assert node.parameters["steady"] == 0
+
+    def test_vradio_forwarding(self):
+        p = Patcher()
+        node = p.add_vradio(
+            new_old=1,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+            init_value=3,
+        )
+        assert node.parameters["new_old"] == 1
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["init_value"] == 3
+
+    def test_hradio_forwarding(self):
+        p = Patcher()
+        node = p.add_hradio(
+            new_old=1,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            fg_color=-2,
+            label_color=-3,
+            init_value=3,
+        )
+        assert node.parameters["new_old"] == 1
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["init_value"] == 3
+
+    def test_canvas_forwarding(self):
+        p = Patcher()
+        node = p.add_canvas(
+            size=20,
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=16,
+            label_color=-3,
+        )
+        assert node.parameters["size"] == 20
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["label_y"] == 3
+        assert node.parameters["font"] == 1
+        assert node.parameters["font_size"] == 16
+        assert node.parameters["label_color"] == -3
+
+    def test_vu_forwarding(self):
+        p = Patcher()
+        node = p.add_vu(
+            label_x=5,
+            label_y=3,
+            font=1,
+            font_size=12,
+            bg_color=-1,
+            label_color=-3,
+            scale=0,
+        )
+        assert node.parameters["label_x"] == 5
+        assert node.parameters["label_y"] == 3
+        assert node.parameters["font"] == 1
+        assert node.parameters["font_size"] == 12
+        assert node.parameters["bg_color"] == -1
+        assert node.parameters["label_color"] == -3
+        assert node.parameters["scale"] == 0
+
+
+class TestEarlyIndexValidation:
+    """Tests for early outlet/inlet index validation."""
+
+    def test_getitem_out_of_range_raises(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        assert osc.num_outlets == 1
+        with pytest.raises(ValueError, match="Outlet index 1 out of range"):
+            osc[1]
+
+    def test_getitem_variable_outlets_allows_any(self):
+        p = Patcher()
+        obj = p.add("trigger")
+        assert obj.num_outlets is None
+        outlet = obj[5]
+        assert outlet.index == 5
+
+    def test_getitem_exact_max_index(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        outlet = osc[0]
+        assert outlet.index == 0
+
+    def test_link_bad_outlet_raises(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        with pytest.raises(PdConnectionError, match="Outlet index 1 out of range"):
+            p.link(osc, dac, outlet=1)
+
+    def test_link_bad_inlet_raises(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        bang = p.add_bang()
+        with pytest.raises(PdConnectionError, match="Inlet index 1 out of range"):
+            p.link(osc, bang, inlet=1)
+
+    def test_link_none_counts_no_validation(self):
+        p = Patcher()
+        obj1 = p.add("unknown_obj_1")
+        obj2 = p.add("unknown_obj_2")
+        assert obj1.num_outlets is None
+        assert obj2.num_inlets is None
+        p.link(obj1, obj2, outlet=99, inlet=99)

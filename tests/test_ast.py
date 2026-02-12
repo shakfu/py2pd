@@ -19,6 +19,7 @@ from py2pd.api import Comment, Subpatch, Symbol
 from py2pd.ast import (
     CanvasProperties,
     PdArray,
+    PdBng,
     PdCnv,
     PdConnect,
     PdCoords,
@@ -661,6 +662,23 @@ class TestBridgeToBuilder:
         assert node.parameters["width"] == 15
         assert node.parameters["label"] == "test_label"
 
+    def test_floatatom_preserves_float_limits(self):
+        from py2pd.api import Float
+
+        elem = PdFloatAtom(Position(10, 20), width=5, lower_limit=0.5, upper_limit=99.7)
+        ast = PdPatch(CanvasProperties(), [elem])
+        patch = to_builder(ast)
+        node = patch.nodes[0]
+        assert isinstance(node, Float)
+        assert node.parameters["upper_limit"] == 99.7
+        assert node.parameters["lower_limit"] == 0.5
+        # Round-trip back to AST
+        ast2 = from_builder(patch)
+        restored = ast2.elements[0]
+        assert isinstance(restored, PdFloatAtom)
+        assert restored.upper_limit == 99.7
+        assert restored.lower_limit == 0.5
+
     def test_to_builder_text_produces_comment(self):
         text = PdText(Position(50, 60), "This is a comment")
         ast = PdPatch(CanvasProperties(), [text])
@@ -789,6 +807,53 @@ class TestRenameSendsReceives:
 
         result = rename_sends_receives(patch, "old_name", "new_name")
         assert result.elements[0].args[0] == "new_name"
+
+    def test_rename_in_bng(self):
+        elements = [
+            PdBng(Position(10, 20), send="old_name", receive="old_name", label="old_name"),
+        ]
+        patch = PdPatch(CanvasProperties(), elements)
+        result = rename_sends_receives(patch, "old_name", "new_name")
+        elem = result.elements[0]
+        assert isinstance(elem, PdBng)
+        assert elem.send == "new_name"
+        assert elem.receive == "new_name"
+        assert elem.label == "new_name"
+
+    def test_rename_in_vu(self):
+        elements = [
+            PdVu(Position(10, 20), receive="old_name", label="old_name"),
+        ]
+        patch = PdPatch(CanvasProperties(), elements)
+        result = rename_sends_receives(patch, "old_name", "new_name")
+        elem = result.elements[0]
+        assert isinstance(elem, PdVu)
+        assert elem.receive == "new_name"
+        assert elem.label == "new_name"
+
+    def test_rename_in_symbolatom(self):
+        elements = [
+            PdSymbolAtom(Position(10, 20), send="old_name", receive="old_name", label="old_name"),
+        ]
+        patch = PdPatch(CanvasProperties(), elements)
+        result = rename_sends_receives(patch, "old_name", "new_name")
+        elem = result.elements[0]
+        assert isinstance(elem, PdSymbolAtom)
+        assert elem.send == "new_name"
+        assert elem.receive == "new_name"
+        assert elem.label == "new_name"
+
+    def test_rename_leaves_non_matching_fields_untouched(self):
+        elements = [
+            PdBng(Position(10, 20), send="keep_this", receive="old_name", label="keep_that"),
+        ]
+        patch = PdPatch(CanvasProperties(), elements)
+        result = rename_sends_receives(patch, "old_name", "new_name")
+        elem = result.elements[0]
+        assert isinstance(elem, PdBng)
+        assert elem.send == "keep_this"
+        assert elem.receive == "new_name"
+        assert elem.label == "keep_that"
 
 
 class TestComplexPatches:
