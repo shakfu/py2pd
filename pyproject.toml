@@ -57,16 +57,23 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The coverage threshold lives on the `make test` / CI invocation rather than
+# here, so that running a single test file locally does not fail on coverage.
 addopts = "--cov=py2pd --cov-report=term-missing"
 
 [tool.mypy]
 python_version = "3.13"
+# tests/examples/ holds runnable sample patches, not a package: test_examples.py
+# adds it to sys.path and imports example.py by module name. Excluded here so
+# mypy does not see the same file under two module names.
+exclude = ["^tests/examples/"]
 warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 module = ["cypd", "hvcc"]
 ignore_missing_imports = true
+
 
 [tool.ruff]
 target-version = "py313"

@@ -336,3 +336,24 @@ class TestParsingDoesNotEnforceTheObjectRegistry:
             warnings.simplefilter("error")  # no warning may be raised
             patch = to_builder(parse(content))
         assert len(patch.connections) == 1
+
+
+class TestPopTerminator:
+    """Older patches close a canvas with a bare ``#X pop;``."""
+
+    def test_pop_closes_the_canvas(self):
+        content = (
+            "#N canvas 0 50 450 300 12;\n"
+            "#N canvas 0 50 450 250 sub 0;\n"
+            "#X obj 10 10 f;\n"
+            "#X pop;\n"
+            "#X obj 20 20 osc~ 440;\n"
+        )
+        elements = parse(content).elements
+        # Ignoring the pop left the canvas open, so the osc~ landed inside it.
+        assert [type(e).__name__ for e in elements] == ["PdSubpatch", "PdObj"]
+        assert serialize(parse(content)).strip() == content.strip()
+
+    def test_unmatched_pop_is_an_error(self):
+        with pytest.raises(Exception):
+            parse("#N canvas 0 50 450 300 12;\n#X pop;\n#X pop;\n")

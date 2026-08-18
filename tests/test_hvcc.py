@@ -5,7 +5,7 @@ import shutil
 import pytest
 
 from py2pd.api import Patcher
-from py2pd.ast import CanvasProperties, PdObj, PdPatch, PdSubpatch, Position
+from py2pd.ast import CanvasProperties, PdObj, PdPatch, PdSubpatch, Position, parse
 from py2pd.integrations.hvcc import (
     HVCC_MIDI_GENERATORS,
     HVCC_MIDI_OBJECTS,
@@ -536,3 +536,89 @@ class TestCompileHvccIntegration:
         out_dir = str(tmp_path / "hvcc_out")
         with pytest.raises(HvccUnsupportedError):
             compile_hvcc(p, output_dir=out_dir, validate=True)
+
+
+class TestValidationCoversEveryNodeType:
+    """Only add() was enforced before, so every other constructor slipped through."""
+
+    def test_unsupported_gui_object_is_rejected_at_add_time(self):
+        p = HeavyPatcher()
+        with pytest.raises(HvccUnsupportedError):
+            p.add_vu()  # 'vu' is not in HVCC_SUPPORTED_OBJECTS
+
+    def test_supported_gui_objects_are_accepted(self):
+        p = HeavyPatcher()
+        p.add_bang()
+        p.add_toggle()
+        p.add_numberbox()
+        p.add_hslider()
+        p.add_vslider()
+        p.add_hradio()
+        p.add_vradio()
+        p.add_canvas()
+        p.add_float()
+        assert len(p.nodes) == 9
+
+    def test_standalone_validation_sees_gui_objects(self):
+        p = Patcher()
+        p.add("osc~ 440")
+        p.add_vu()
+        result = validate_for_hvcc(p)
+        assert not result.ok
+        assert "unsupported object: vu" in result.errors
+
+    def test_ast_validation_sees_gui_objects(self):
+        content = (
+            "#N canvas 0 50 450 300 12;\n"
+            "#X obj 10 10 vu 15 120 empty empty -1 -8 0 10 -66577 -1 1 0;\n"
+        )
+        result = validate_for_hvcc(parse(content))
+        assert not result.ok
+        assert "unsupported object: vu" in result.errors
+
+    def test_messages_comments_arrays_and_abstractions_are_not_flagged(self):
+        """These are not built-in object classes, so there is nothing to look up."""
+        p = Patcher()
+        p.add_msg("bang")
+        p.add_comment("a note")
+        p.add_array("wavetable", 64)
+        p.add_abstraction("my-reverb 0.5")
+        assert validate_for_hvcc(p).ok
+
+    def test_subpatch_contents_are_validated(self):
+        inner = Patcher()
+        inner.add("osc~ 440")
+        inner.add_vu()
+        p = Patcher()
+        p.add_subpatch("voice", inner)
+        assert not validate_for_hvcc(p).ok
+
+
+class TestHvccExecutableResolution:
+    def test_resolves_a_command(self):
+        from py2pd.integrations.hvcc import _hvcc_executable
+
+        assert _hvcc_executable().endswith("hvcc") or _hvcc_executable().endswith("hvcc.exe")
+
+
+class TestCompilerOutputClassification:
+    @pytest.mark.parametrize(
+        "line,is_error",
+        [
+            ("error: bad thing", True),
+            ("Errors: 2", True),
+            ("compilation failed", True),
+            ("/home/me/error-handling/patch.pd", False),
+            ("processing /tmp/warnings.pd", False),
+        ],
+    )
+    def test_error_lines(self, line, is_error):
+        from py2pd.integrations.hvcc import _ERROR_LINE
+
+        assert bool(_ERROR_LINE.search(line)) is is_error
+
+    def test_warning_lines(self):
+        from py2pd.integrations.hvcc import _WARNING_LINE
+
+        assert _WARNING_LINE.search("warning: deprecated")
+        assert not _WARNING_LINE.search("/tmp/warnings.pd")

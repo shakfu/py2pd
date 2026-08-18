@@ -6,7 +6,7 @@ import sys
 # Add the examples directory to the path so we can import example.py
 sys.path.insert(0, str(Path(__file__).parent / "examples"))
 
-from example import (
+from example import (  # type: ignore[import-not-found]  # added to sys.path above
     auto_layout_demo,
     grid_layout_demo,
     gui_elements_demo,

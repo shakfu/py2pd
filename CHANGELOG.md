@@ -77,6 +77,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hierarchy) originate upstream -- and is included in the distribution via
   `license-files`.
 
+- **hvcc validation only ever inspected `Obj` nodes.** The GUI classes are
+  object boxes too, and the AST GUI dataclasses are not `PdObj` subclasses, so
+  both walkers skipped every one of them: `HeavyPatcher().add_vu()` was accepted
+  and `validate_for_hvcc()` reported `ok=True` for a patch containing it.
+  `HeavyPatcher` now enforces on every `add_*` method rather than only `add()`,
+  and abstractions are no longer reported as unsupported objects -- an
+  abstraction names a user file, not a built-in class.
+- **`compile_hvcc()` could hang or crash.** It shelled out to the `hvcc`
+  console script after only checking that the package was importable, which is
+  not the same as its entry point being on PATH, and `FileNotFoundError` was
+  unhandled. It now resolves the script beside the running interpreter, falls
+  back to PATH, returns a failed result rather than raising, and takes a
+  `timeout` (default 600s).
+- **`validate_patch()` said an object failed but not which one.** PureData logs
+  the object text on the line before a generic `couldn't create`; that context
+  is now attached to the error.
+- **`link()` accepted negative indices**, producing `#X connect 0 0 1 -1;`,
+  which PureData rejects on load with "connection failed".
+- **`validate_connections()` could never return a non-empty list** -- it raised
+  instead. `raise_on_error=False` now returns the errors.
+- **`detect_cycles()` recursed**, raising `RecursionError` on a patch a few
+  thousand nodes deep. `validate_connections()` calls it by default. It is now
+  iterative.
+- **`link()` was O(n) per call**, making patch construction quadratic. Node
+  positions are now resolved through a self-healing `id()` cache: 5000 nodes
+  went from 0.23s to 0.03s, and 20000 nodes now complete in 0.1s.
+- **`add_abstraction()` without inlet/outlet counts defaulted to zero**, so the
+  first `link()` to it always raised. Unknown counts are now `None`, which
+  skips validation.
+- **Comment text was never escaped.** `Comment(0, 0, "a; b")` emitted
+  `#X text 0 0 a; b;`, which PureData reads as two statements. There is also a
+  `Patcher.add_comment()` now -- comments were previously reachable only
+  through `to_builder()`.
+- **`optimize()` removed objects that work without patch cords.** A
+  disconnected `[table]`, `[declare]`, `[block~]`, `[inlet]` or `[outlet]` is
+  not unused; removing one changes what the patch does.
+- **`#X pop` was ignored**, leaving the canvas on the parse stack so every
+  following element was read into the wrong subpatch. It now closes the canvas
+  and serializes back unchanged.
+- **File writes used the locale encoding.** `save()` and `save_svg()` now
+  specify UTF-8 explicitly, and `save()` terminates the file with a newline as
+  PureData does.
+- **`to_svg()` had unreachable branches** -- the message and array labels could
+  never be produced, because the generic `"text" in params` check came first.
+- **`unescape()`'s docstring claimed it reverses `escape()`.** It does not, and
+  is not meant to: it renders text the way PureData displays it.
+- Corrected `pip install py2pd[hvcc]` / `py2pd[validate]` in older CHANGELOG
+  entries; the extra has always been named `extras`.
+
 ### Changed
 
 - **Object arity is resolved from the full object text, not the class name.**
@@ -103,6 +152,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/test_corpus.py` -- runs the parser over a real PureData installation's
   patches when one is present, skipped otherwise. Set `PD_DOC_DIR` to choose a
   corpus.
+- `tests/test_pd_loads.py` -- generates patches, opens them in PureData and
+  requires a silent console. Unit tests can only confirm py2pd wrote the bytes
+  it intended; this confirms PureData accepts them. Skipped when no `pd` binary
+  is found; set `PD_BIN` to choose one.
+- `Patcher.add_comment()`, and `escaped=` on `Obj`, `Msg`, `Comment`,
+  `Patcher.add()` and `Patcher.add_msg()`.
+- `Patcher(canvas_x=, canvas_y=, canvas_width=, canvas_height=, font_size=)` --
+  the main canvas line was previously hardcoded to `#N canvas 0 50 1000 600 10`.
+  `to_builder()` now carries the source patch's geometry across.
+- `Node.pd_class_name` on every builder node and AST element -- the PureData
+  class name a validator should check it against, or None for elements that are
+  not object boxes.
+- `validate_patch(work_dir=...)` for validating a patch alongside its sibling
+  abstractions.
+- `py.typed` marker, so the annotations actually reach downstream users. The
+  `Typing :: Typed` classifier had been declared without it.
+- A release workflow, triggered by publishing a GitHub Release, using PyPI
+  Trusted Publishing.
+- CI now installs the optional extras (`--all-extras`), type-checks `tests/` as
+  well as `src/`, and enforces a 90% coverage floor. Without the extras the
+  `cypd` and `hvcc` integration tests silently skipped, which is how four
+  genuine failures in that code went unnoticed.
 
 
 ## [0.1.3]
@@ -145,12 +216,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `compile_hvcc()` -- serialize to tempfile and shell out to the `hvcc` CLI. Supports all generators (C, DPF, Daisy, JS, OWL, pdext, Unity, Wwise).
   - `HVCC_SUPPORTED_OBJECTS` -- complete registry of ~163 hvcc-supported Pd objects.
   - `HvccGenerator` enum, `HvccValidationResult`/`HvccCompileResult` dataclasses, `HvccError`/`HvccUnsupportedError`/`HvccCompileError` exceptions.
-  - `hvcc` is an optional dependency (`pip install py2pd[hvcc]`); authoring and validation work without it.
+  - `hvcc` is an optional dependency (`pip install py2pd[extras]`); authoring and validation work without it.
 - Tests for hvcc module (registry, validation, HeavyPatcher, annotations, compile unit tests; integration tests skip if hvcc not installed)
 - **Patch validation via libpd** (`integrations/cypd.py`, was `validate.py`):
   - `validate_patch()` -- loads a patch in libpd (via optional `cypd` dependency) and captures print output to detect missing objects, unresolved externals, and other errors. Accepts both `Patcher` and `PdPatch` inputs. Configurable search paths, declare-path extraction, and receiver existence checking.
   - `ValidationResult` dataclass -- `ok`, `errors`, `warnings`, `log` fields.
-  - `cypd` is an optional dependency (`pip install py2pd[validate]`); py2pd works fine without it.
+  - `cypd` is an optional dependency (`pip install py2pd[extras]`); py2pd works fine without it.
 - Tests for validation module (unit tests run without cypd; integration tests skip if cypd is not installed)
 - **`PdDeclare` AST node**: Parse and serialize `#X declare -path ... -lib ... -stdpath -stdlib` statements. Skipped silently in `to_builder()` (no builder equivalent). Does not affect object indexing for connections.
 - **Externals discovery** (`discover.py` module):

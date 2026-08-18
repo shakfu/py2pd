@@ -2,7 +2,7 @@
 		clean docs qa
 
 test:
-	@uv run pytest tests/ -v
+	@uv run pytest tests/ -v --cov-fail-under=90
 
 lint:
 	@uv run ruff check src/ tests/
@@ -11,7 +11,7 @@ format:
 	@uv run ruff format src/ tests/
 
 typecheck:
-	@uv run mypy src/
+	@uv run mypy src/ tests/
 
 qa: test lint typecheck format
 

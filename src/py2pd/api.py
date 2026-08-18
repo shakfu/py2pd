@@ -20,6 +20,13 @@ ELEMENT_BASE_HEIGHT = 10
 FLOATATOM_WIDTH = 50
 FLOATATOM_HEIGHT = 25
 
+# Default main-canvas geometry written on the "#N canvas" line
+CANVAS_X = 0
+CANVAS_Y = 50
+CANVAS_WIDTH = 1000
+CANVAS_HEIGHT = 600
+CANVAS_FONT_SIZE = 10
+
 
 class PdConnectionError(ValueError):
     """Raised when connection arguments are invalid."""
@@ -73,11 +80,22 @@ def escape(text: str) -> str:
 
 
 def unescape(text: str) -> str:
-    """Unescape PureData format back to display text.
+    """Convert PureData-escaped text into the text PureData displays.
 
-    Reverses the escaping done by ``escape()``: converts escaped semicolons
-    back to newlines, escaped commas back to commas, and escaped dollar signs
-    back to plain dollar signs.
+    Escaped semicolons become newlines, escaped commas become commas and
+    escaped dollar signs become plain dollar signs -- matching how PureData
+    lays a message or comment out on screen.
+
+    This is a display transform, **not** the inverse of :func:`escape`. Two
+    differences matter if you were hoping to round-trip through it:
+
+    - ``escape`` turns a semicolon into an escaped one; ``unescape`` turns that
+      into a newline, because that is where PureData breaks the line.
+    - ``escape`` doubles a backslash; ``unescape`` leaves it doubled.
+
+    Use it to render text for a human. To recover the exact source text, keep
+    the escaped form (see the ``escaped`` argument on :class:`Obj`,
+    :class:`Msg` and :class:`Comment`).
 
     Parameters
     ----------
@@ -87,7 +105,14 @@ def unescape(text: str) -> str:
     Returns
     -------
     str
-        Human-readable display text
+        Text as PureData would display it
+
+    Examples
+    --------
+    >>> unescape(escape('a, b'))
+    'a, b'
+    >>> unescape(escape('one; two'))
+    'one\ntwo'
     """
     disp = re.sub(r" (?<!\\)\\; ", "\n", text)
     disp = re.sub(r" (?<!\\)\\, ", ",", disp)
@@ -168,6 +193,18 @@ class Node:
         return Node.Outlet(self, key)
 
     @property
+    def pd_class_name(self) -> Optional[str]:
+        """The PureData class name this node is validated as, or None.
+
+        Returns the name a validator should check against a registry of known
+        objects -- ``'osc~'``, ``'bng'``, ``'floatatom'``. Returns None for
+        nodes that are not object boxes (messages, comments, arrays) and for
+        abstractions, whose name refers to a user file rather than a built-in
+        class and so cannot be looked up in any registry.
+        """
+        return None
+
+    @property
     def position(self) -> Tuple[int, int]:
         if self.hidden:
             return (-1, -1)
@@ -242,6 +279,11 @@ class Obj(Node):
     def __repr__(self) -> str:
         p = self.parameters
         return f"Obj({p['x_pos']}, {p['y_pos']}, {p['text']!r})"
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        parts = self.parameters["text"].split()
+        return parts[0] if parts else None
 
     @property
     def dimensions(self) -> Tuple[int, int]:
@@ -372,6 +414,10 @@ class Float(Node):
             f"{p['receive']} {p['send']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "floatatom"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"Float({p['x_pos']}, {p['y_pos']}, width={p['width']})"
@@ -382,13 +428,25 @@ class Float(Node):
 
 
 class Comment(Node):
-    """A comment (#X text) - displays non-functional text in the patch."""
+    """A comment (``#X text``) -- non-functional text displayed in the patch.
 
-    def __init__(self, x_pos: int, y_pos: int, content: str = "") -> None:
+    Parameters
+    ----------
+    x_pos, y_pos : int
+        Position in patch coordinates.
+    content : str
+        Comment text. Escaped for the PureData file format, so a semicolon or
+        comma in the text does not terminate the statement.
+    escaped : bool, optional
+        Set True when *content* is already in PureData's escaped form, e.g.
+        text taken from a parsed patch.
+    """
+
+    def __init__(self, x_pos: int, y_pos: int, content: str = "", *, escaped: bool = False) -> None:
         self.parameters = {
             "x_pos": x_pos,
             "y_pos": y_pos,
-            "content": content,
+            "content": content if escaped else escape(content),
         }
         self.num_inlets = 0
         self.num_outlets = 0
@@ -430,21 +488,21 @@ class Subpatch(Node):
     Layout Inheritance
     ------------------
     By default, the inner patch has its own independent LayoutManager.
-    Use `inherit_layout=True` in create_subpatch() to copy the parent's
+    Use ``inherit_layout=True`` in ``add_subpatch()`` to copy the parent's
     layout settings (margins, row/column spacing) to the inner patch.
 
     Examples
     --------
     >>> # Create parent and inner patches
-    >>> parent = Patch()
-    >>> inner = Patch()
-    >>> obj, = inner.get_creators('obj')
-    >>> inlet = obj('inlet')
-    >>> outlet = obj('outlet', inlet[0])
+    >>> parent = Patcher()
+    >>> inner = Patcher()
+    >>> inlet = inner.add('inlet')
+    >>> outlet = inner.add('outlet')
+    >>> inner.link(inlet, outlet)
     >>>
     >>> # Insert subpatch - position (100, 50) is in parent's coordinates
     >>> # Elements inside use inner's coordinate system
-    >>> sp = parent.create_subpatch('mysubpatch', inner, x_pos=100, y_pos=50)
+    >>> sp = parent.add_subpatch('mysubpatch', inner, x_pos=100, y_pos=50)
 
     Attributes
     ----------
@@ -563,6 +621,10 @@ class Subpatch(Node):
             f"{restore}"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "pd"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"Subpatch({p['x_pos']}, {p['y_pos']}, {p['name']!r})"
@@ -624,6 +686,11 @@ class Abstraction(Obj):
         """Path to the .pd file, if known."""
         return self._source_path
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        """None -- an abstraction names a user file, not a built-in class."""
+        return None
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"Abstraction({p['x_pos']}, {p['y_pos']}, {p['text']!r})"
@@ -648,7 +715,7 @@ def _infer_abstraction_io(path: str) -> Tuple[int, int]:
     """
     from .ast import PdObj, parse
 
-    with open(path) as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         content = f.read()
     patch = parse(content)
     num_inlets = 0
@@ -788,6 +855,10 @@ class Bang(Node):
             f"{p['font_size']} {p['bg_color']} {p['fg_color']} {p['label_color']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "bng"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"Bang({p['x_pos']}, {p['y_pos']}, size={p['size']})"
@@ -866,6 +937,10 @@ class Toggle(Node):
             f"{p['init_value']} {p['default_value']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "tgl"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"Toggle({p['x_pos']}, {p['y_pos']}, size={p['size']})"
@@ -915,6 +990,10 @@ class Symbol(Node):
             f"{p['lower_limit']} {p['upper_limit']} {p['label_pos']} "
             f"{p['label']} {p['receive']} {p['send']};\n"
         )
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "symbolatom"
 
     def __repr__(self) -> str:
         p = self.parameters
@@ -993,6 +1072,10 @@ class NumberBox(Node):
             f"{p['init_value']} {p['log_height']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "nbx"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"NumberBox({p['x_pos']}, {p['y_pos']}, width={p['width']})"
@@ -1067,6 +1150,10 @@ class VSlider(Node):
             f"{p['init_value']} {p['steady']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "vsl"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"VSlider({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
@@ -1138,6 +1225,10 @@ class HSlider(Node):
             f"{p['init_value']} {p['steady']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "hsl"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"HSlider({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
@@ -1204,6 +1295,10 @@ class VRadio(Node):
             f"{p['bg_color']} {p['fg_color']} {p['label_color']} {p['init_value']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "vradio"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"VRadio({p['x_pos']}, {p['y_pos']}, number={p['number']})"
@@ -1269,6 +1364,10 @@ class HRadio(Node):
             f"{p['bg_color']} {p['fg_color']} {p['label_color']} {p['init_value']};\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "hradio"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"HRadio({p['x_pos']}, {p['y_pos']}, number={p['number']})"
@@ -1332,6 +1431,10 @@ class Canvas(Node):
             f"{p['bg_color']} {p['label_color']} 0;\n"
         )
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "cnv"
+
     def __repr__(self) -> str:
         p = self.parameters
         return f"Canvas({p['x_pos']}, {p['y_pos']}, {p['width']}x{p['height']})"
@@ -1390,6 +1493,10 @@ class VU(Node):
             f"{p['label_x']} {p['label_y']} {p['font']} {p['font_size']} "
             f"{p['bg_color']} {p['label_color']} {p['scale']} 0;\n"
         )
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "vu"
 
     def __repr__(self) -> str:
         p = self.parameters
@@ -1638,6 +1745,36 @@ _PROTECTED_TYPES = (
 
 # Default/inactive values for send/receive parameters across Pd object types.
 _SEND_RECEIVE_INACTIVE = frozenset({"empty", "-", ""})
+
+# Object classes that do their job without any patch cords attached, so
+# "disconnected" says nothing about whether they are used. Removing one of
+# these changes what the patch does:
+#
+#   inlet/outlet   define the enclosing subpatch's own inlets and outlets
+#   table/array    declare storage other objects address by name
+#   text/struct    declare data structures addressed by name
+#   block~/switch~ configure the canvas's block size and DSP switching
+#   declare/import set the patch's search path and libraries
+#   namecanvas     names the canvas for messages sent to it
+#   pd~            runs a subprocess
+_STRUCTURAL_OBJECTS = frozenset(
+    {
+        "inlet",
+        "inlet~",
+        "outlet",
+        "outlet~",
+        "table",
+        "array",
+        "text",
+        "struct",
+        "block~",
+        "switch~",
+        "declare",
+        "import",
+        "namecanvas",
+        "pd~",
+    }
+)
 
 
 def _resolve_bypasses(
@@ -2028,6 +2165,11 @@ class Patcher:
         layout: Optional[LayoutManager] = None,
         *,
         validate_links: bool = True,
+        canvas_x: int = CANVAS_X,
+        canvas_y: int = CANVAS_Y,
+        canvas_width: int = CANVAS_WIDTH,
+        canvas_height: int = CANVAS_HEIGHT,
+        font_size: int = CANVAS_FONT_SIZE,
     ) -> None:
         """Initialize a new patch.
 
@@ -2044,12 +2186,24 @@ class Patcher:
             object registry cannot know the arity of externals, abstractions,
             or objects it has no entry for, and a patch that PureData accepts
             must still be representable.
+        canvas_x, canvas_y : int, optional
+            Window position written on the ``#N canvas`` line.
+        canvas_width, canvas_height : int, optional
+            Window size written on the ``#N canvas`` line.
+        font_size : int, optional
+            Patch font size written on the ``#N canvas`` line (default: 10).
         """
         self.filename = filename
         self.nodes = []
         self.connections = []
         self.layout = layout if layout is not None else LayoutManager()
         self.validate_links = validate_links
+        self.canvas_x = canvas_x
+        self.canvas_y = canvas_y
+        self.canvas_width = canvas_width
+        self.canvas_height = canvas_height
+        self.font_size = font_size
+        self._node_positions: Dict[int, int] = {}
 
     @property
     def row_head(self) -> Optional[Node]:
@@ -2068,6 +2222,27 @@ class Patcher:
     @row_tail.setter
     def row_tail(self, value: Optional[Node]) -> None:
         self.layout.row_tail = value
+
+    def _register(self, node: Node, pos_update: Optional[Callable[[Node], None]] = None) -> None:
+        """Add *node* to the patch and update layout state.
+
+        Every ``add_*`` method funnels through here, which gives subclasses a
+        single place to inspect or reject nodes. ``HeavyPatcher`` uses it to
+        enforce the hvcc object subset across all of them rather than only
+        ``add()``.
+
+        Parameters
+        ----------
+        node : Node
+            The node to add.
+        pos_update : callable, optional
+            Layout callback returned by ``_resolve_position()``. Omitted for
+            hidden nodes that take no part in layout.
+        """
+        self._node_positions[id(node)] = len(self.nodes)
+        self.nodes.append(node)
+        if pos_update is not None:
+            pos_update(node)
 
     def _resolve_position(
         self, x_pos: int, y_pos: int, new_row: float, new_col: float
@@ -2164,8 +2339,7 @@ class Patcher:
                 if num_outlets is None:
                     node.num_outlets = reg_out
 
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_msg(
@@ -2195,8 +2369,43 @@ class Patcher:
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Msg(x_pos, y_pos, text, escaped=escaped)
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
+        return node
+
+    def add_comment(
+        self,
+        text: str,
+        *,
+        new_row: float = 1,
+        new_col: float = 0,
+        x_pos: int = -1,
+        y_pos: int = -1,
+        escaped: bool = False,
+    ) -> Comment:
+        """Add a comment to the patch.
+
+        Parameters
+        ----------
+        text : str
+            The comment text. Semicolons and commas are escaped, so they
+            display as written rather than ending the statement.
+        escaped : bool, optional
+            Set True when *text* is already in PureData's escaped form.
+
+        Returns
+        -------
+        Comment
+            The created comment
+
+        Example
+        -------
+        >>> p = Patcher()
+        >>> p.add_comment('gain stage; adjust to taste')
+        Comment(25, 25, 'gain stage \\\\;  adjust to taste')
+        """
+        x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
+        node = Comment(x_pos, y_pos, text, escaped=escaped)
+        self._register(node, pos_update)
         return node
 
     def add_float(
@@ -2237,8 +2446,7 @@ class Patcher:
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Float(x_pos, y_pos, width, upper_limit, lower_limit, label, receive, send)
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_subpatch(
@@ -2364,8 +2572,7 @@ class Patcher:
             gop_rect=gop_rect,
             gop_margins=gop_margins,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_abstraction(
@@ -2393,12 +2600,13 @@ class Patcher:
             the file contents.
 
         num_inlets : int, optional
-            Number of inlets. If None and source_path is given, inferred
-            from the file. Otherwise defaults to 0.
+            Number of inlets. If None and source_path is given, inferred from
+            the file. Otherwise left unknown, so connection validation is
+            skipped for this node -- py2pd cannot see inside an abstraction it
+            has not been shown.
 
         num_outlets : int, optional
-            Number of outlets. If None and source_path is given, inferred
-            from the file. Otherwise defaults to 0.
+            Number of outlets. Same rules as *num_inlets*.
 
         Returns
         -------
@@ -2417,12 +2625,11 @@ class Patcher:
             x_pos,
             y_pos,
             text,
-            num_inlets=num_inlets if num_inlets is not None else 0,
-            num_outlets=num_outlets if num_outlets is not None else 0,
+            num_inlets=num_inlets,
+            num_outlets=num_outlets,
             source_path=source_path,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_array(self, name: str, length: int) -> Array:
@@ -2446,7 +2653,7 @@ class Patcher:
         The array will not have a graph. Its contents are not stored.
         """
         node = Array(name, length)
-        self.nodes.append(node)
+        self._register(node)
         return node
 
     def add_bang(
@@ -2514,8 +2721,7 @@ class Patcher:
             fg_color=fg_color,
             label_color=label_color,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_toggle(
@@ -2577,8 +2783,7 @@ class Patcher:
             init_value=init_value,
             default_value=default_value,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_symbol(
@@ -2620,8 +2825,7 @@ class Patcher:
             send=send,
             receive=receive,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_numberbox(
@@ -2696,8 +2900,7 @@ class Patcher:
             init_value=init_value,
             log_height=log_height,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_vslider(
@@ -2770,8 +2973,7 @@ class Patcher:
             init_value=init_value,
             steady=steady,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_hslider(
@@ -2844,8 +3046,7 @@ class Patcher:
             init_value=init_value,
             steady=steady,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_vradio(
@@ -2906,8 +3107,7 @@ class Patcher:
             label_color=label_color,
             init_value=init_value,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_hradio(
@@ -2968,8 +3168,7 @@ class Patcher:
             label_color=label_color,
             init_value=init_value,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_canvas(
@@ -3033,8 +3232,7 @@ class Patcher:
             bg_color=bg_color,
             label_color=label_color,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def add_vu(
@@ -3091,8 +3289,7 @@ class Patcher:
             label_color=label_color,
             scale=scale,
         )
-        self.nodes.append(node)
-        pos_update(node)
+        self._register(node, pos_update)
         return node
 
     def link(
@@ -3121,6 +3318,11 @@ class Patcher:
         ------
         NodeNotFoundError
             If source or sink is not in this patch
+        PdConnectionError
+            If an index is negative, or exceeds the node's known I/O count
+            while ``validate_links`` is True. PureData rejects a negative index
+            outright ("connection failed"), so it is always an error regardless
+            of ``validate_links``.
 
         Example
         -------
@@ -3135,15 +3337,13 @@ class Patcher:
             outlet = source.index
             source = source.owner
 
-        try:
-            source_index = self.nodes.index(source)
-        except ValueError:
-            raise NodeNotFoundError(f"Source node {source!r} not found in patch")
+        source_index = self._index_of(source, "Source")
+        sink_index = self._index_of(sink, "Sink")
 
-        try:
-            sink_index = self.nodes.index(sink)
-        except ValueError:
-            raise NodeNotFoundError(f"Sink node {sink!r} not found in patch")
+        if outlet < 0:
+            raise PdConnectionError(f"Outlet index must be non-negative, got {outlet}")
+        if inlet < 0:
+            raise PdConnectionError(f"Inlet index must be non-negative, got {inlet}")
 
         if source.num_outlets is not None and outlet >= source.num_outlets:
             self._reject_link(
@@ -3158,6 +3358,31 @@ class Patcher:
 
         self.connections.append(Connection(source_index, outlet, sink_index, inlet))
 
+    def _index_of(self, node: Node, role: str) -> int:
+        """Return *node*'s position in ``self.nodes``.
+
+        Backed by an ``id()`` cache so that building a large patch is linear
+        rather than quadratic -- a plain ``list.index()`` per ``link()`` call
+        made construction O(n^2). The cached position is verified against the
+        live list before use and rebuilt on a miss, so the cache stays correct
+        even when ``self.nodes`` is manipulated directly.
+
+        Raises
+        ------
+        NodeNotFoundError
+            If *node* is not in this patch.
+        """
+        key = id(node)
+        cached = self._node_positions.get(key)
+        if cached is not None and cached < len(self.nodes) and self.nodes[cached] is node:
+            return cached
+
+        self._node_positions = {id(n): i for i, n in enumerate(self.nodes)}
+        index = self._node_positions.get(key)
+        if index is None:
+            raise NodeNotFoundError(f"{role} node {node!r} not found in patch")
+        return index
+
     def _reject_link(self, message: str) -> None:
         """Raise or warn about an out-of-range connection, per ``validate_links``."""
         if self.validate_links:
@@ -3168,7 +3393,11 @@ class Patcher:
     add_link = link
 
     def __str__(self) -> str:
-        return f"#N canvas 0 50 1000 600 10;\n{self._subpatch_str().rstrip()}"
+        canvas = (
+            f"#N canvas {self.canvas_x} {self.canvas_y} "
+            f"{self.canvas_width} {self.canvas_height} {self.font_size};\n"
+        )
+        return f"{canvas}{self._subpatch_str().rstrip()}"
 
     def __repr__(self) -> str:
         return f"Patcher(nodes={len(self.nodes)}, connections={len(self.connections)})"
@@ -3196,10 +3425,12 @@ class Patcher:
         fn = filename or self.filename
         if fn is None:
             raise ValueError("No filename specified. Provide filename or set in constructor.")
-        with open(fn, "w") as f:
-            f.write(str(self))
+        with open(fn, "w", encoding="utf-8", newline="\n") as f:
+            f.write(str(self) + "\n")
 
-    def validate_connections(self, check_cycles: bool = True) -> List[str]:
+    def validate_connections(
+        self, check_cycles: bool = True, *, raise_on_error: bool = True
+    ) -> List[str]:
         """Validate all connections in the patch.
 
         Checks that:
@@ -3211,24 +3442,36 @@ class Patcher:
         ----------
         check_cycles : bool
             If True, also check for cycles and issue warnings (default: True)
+        raise_on_error : bool
+            If True (default), raise ``InvalidConnectionError`` when any
+            connection is invalid. If False, return the errors instead, which
+            is the only way to receive a non-empty list.
 
         Returns
         -------
         list of str
-            List of validation error messages. Empty if all connections are valid.
+            Validation error messages. Always empty when *raise_on_error* is
+            True, since a non-empty result raises instead.
 
         Raises
         ------
         InvalidConnectionError
-            If any connection references an invalid inlet or outlet index.
-            Only raised if the node has num_inlets/num_outlets specified.
+            If any connection references an invalid inlet or outlet index and
+            *raise_on_error* is True. Connections to nodes whose
+            num_inlets/num_outlets are unknown are not checked.
 
         Examples
         --------
-        >>> patch = Patch()
-        >>> osc = patch.create_obj('osc~ 440', num_inlets=2, num_outlets=1)
-        >>> dac = patch.create_obj('dac~', osc[0], num_inlets=2, num_outlets=0)
-        >>> errors = patch.validate_connections()
+        >>> patch = Patcher()
+        >>> osc = patch.add('osc~ 440')
+        >>> dac = patch.add('dac~')
+        >>> patch.link(osc, dac)
+        >>> patch.validate_connections()
+        []
+
+        Collect problems instead of raising:
+
+        >>> errors = patch.validate_connections(raise_on_error=False)
         >>> if errors:
         ...     print("Validation errors:", errors)
         """
@@ -3266,7 +3509,7 @@ class Patcher:
                     cycle_nodes = [repr(self.nodes[i]) for i in cycle]
                     warnings.warn(f"Cycle detected: {' -> '.join(cycle_nodes)}", CycleWarning)
 
-        if errors:
+        if errors and raise_on_error:
             raise InvalidConnectionError(
                 f"Found {len(errors)} invalid connection(s):\n"
                 + "\n".join(f"  - {e}" for e in errors)
@@ -3289,42 +3532,59 @@ class Patcher:
 
         Examples
         --------
-        >>> patch = Patch()
-        >>> a = patch.create_obj('delread~ delay')
-        >>> b = patch.create_obj('+~', a[0])
-        >>> c = patch.create_obj('delwrite~ delay', b[0])
-        >>> cycles = patch.detect_cycles()  # May detect feedback loop
+        >>> patch = Patcher()
+        >>> a = patch.add('delread~ delay')
+        >>> b = patch.add('+~')
+        >>> c = patch.add('delwrite~ delay')
+        >>> patch.link(a, b)
+        >>> patch.link(b, c)
+        >>> cycles = patch.detect_cycles()
+
+        Notes
+        -----
+        The traversal is iterative. A recursive one overflows the interpreter
+        stack on a patch a few thousand nodes deep, and ``validate_connections()``
+        calls this by default.
         """
         # Build adjacency list
-        adjacency: Dict[int, Set[int]] = {i: set() for i in range(len(self.nodes))}
+        adjacency: Dict[int, List[int]] = {i: [] for i in range(len(self.nodes))}
         for conn in self.connections:
-            adjacency[conn.source].add(conn.sink)
+            if conn.sink not in adjacency[conn.source]:
+                adjacency[conn.source].append(conn.sink)
 
-        cycles = []
+        cycles: List[List[int]] = []
         visited: Set[int] = set()
-        rec_stack: Set[int] = set()
+        on_path: Set[int] = set()
         path: List[int] = []
 
-        def dfs(node: int) -> None:
-            visited.add(node)
-            rec_stack.add(node)
-            path.append(node)
+        for start in range(len(self.nodes)):
+            if start in visited:
+                continue
+            # Each stack frame is (node, index of the next neighbour to visit).
+            stack: List[Tuple[int, int]] = [(start, 0)]
+            visited.add(start)
+            on_path.add(start)
+            path.append(start)
 
-            for neighbor in adjacency[node]:
-                if neighbor not in visited:
-                    dfs(neighbor)
-                elif neighbor in rec_stack:
-                    # Found a cycle - extract it from path
-                    cycle_start = path.index(neighbor)
-                    cycle = path[cycle_start:] + [neighbor]
-                    cycles.append(cycle)
-
-            path.pop()
-            rec_stack.remove(node)
-
-        for node in range(len(self.nodes)):
-            if node not in visited:
-                dfs(node)
+            while stack:
+                node, next_index = stack[-1]
+                neighbors = adjacency[node]
+                if next_index < len(neighbors):
+                    stack[-1] = (node, next_index + 1)
+                    neighbor = neighbors[next_index]
+                    if neighbor in on_path:
+                        # Back edge: the cycle is the path from that node on.
+                        cycle_start = path.index(neighbor)
+                        cycles.append(path[cycle_start:] + [neighbor])
+                    elif neighbor not in visited:
+                        visited.add(neighbor)
+                        on_path.add(neighbor)
+                        path.append(neighbor)
+                        stack.append((neighbor, 0))
+                else:
+                    stack.pop()
+                    on_path.discard(node)
+                    path.pop()
 
         return cycles
 
@@ -3421,20 +3681,26 @@ class Patcher:
             return '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>'
 
         def get_node_text(node: Node) -> str:
-            """Extract display text from a node."""
+            """Extract display text from a node.
+
+            Ordered most specific first: a bare ``"text" in params`` check would
+            also catch Msg, and ``"name" in params`` would also catch Array,
+            leaving their own labels unreachable.
+            """
             params = node.parameters
+            if isinstance(node, Msg):
+                return f"msg: {params.get('text', '')}"
+            if isinstance(node, Array):
+                return f"array: {params.get('name', '')}"
+            if isinstance(node, Float):
+                return "floatatom"
+            if isinstance(node, Comment):
+                return str(params.get("content", ""))
             if "text" in params:
                 return str(params["text"])
-            elif "name" in params:
+            if "name" in params:
                 return f"[{params['name']}]"
-            elif isinstance(node, Msg):
-                return f"msg: {params.get('text', '')}"
-            elif isinstance(node, Float):
-                return "floatatom"
-            elif isinstance(node, Array):
-                return f"array: {params.get('name', '')}"
-            else:
-                return str(type(node).__name__)
+            return str(type(node).__name__)
 
         def get_node_width(text: str) -> int:
             """Calculate node width based on text length."""
@@ -3562,9 +3828,9 @@ class Patcher:
             if show_labels:
                 # Truncate text if too long
                 text = str(info["text"])
-                max_chars = (w - 8) // char_width
+                max_chars = max(0, (w - 8) // char_width)
                 if len(text) > max_chars:
-                    text = text[: max_chars - 2] + ".."
+                    text = text[: max(0, max_chars - 2)] + ".."
 
                 text_x = x + 4
                 text_y = y + h - 5
@@ -3593,7 +3859,7 @@ class Patcher:
         >>> p.link(osc, dac)
         >>> p.save_svg('patch.svg')
         """
-        with open(filename, "w") as f:
+        with open(filename, "w", encoding="utf-8") as f:
             f.write(self.to_svg(**kwargs))
 
     def _remap_after_removal(self, indices_to_remove: Set[int]) -> None:
@@ -3655,8 +3921,10 @@ class Patcher:
            the intermediate node does not change message semantics.
         3. **Unused element removal** -- remove ``Obj`` nodes that have no
            connections and are not protected types (GUI, Comment, Subpatch,
-           Abstraction, Array, Msg, Float) and do not have active send/receive
-           parameters.
+           Abstraction, Array, Msg, Float), are not structural objects that do
+           their job without patch cords (``inlet``, ``outlet``, ``table``,
+           ``declare``, ``block~``, ... -- see ``_STRUCTURAL_OBJECTS``), and do
+           not have active send/receive parameters.
 
         Parameters
         ----------
@@ -3766,6 +4034,8 @@ class Patcher:
             if idx in removal_set:
                 continue
             if isinstance(node, _PROTECTED_TYPES):
+                continue
+            if node.pd_class_name in _STRUCTURAL_OBJECTS:
                 continue
             if _has_active_send_receive(node):
                 continue

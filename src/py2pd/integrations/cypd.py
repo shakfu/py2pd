@@ -17,8 +17,10 @@ Usage::
 
 from dataclasses import dataclass, field
 import os
+import re
 import tempfile
-from typing import Optional, Sequence
+import threading
+from typing import Any, Optional, Sequence
 
 from ..api import Patcher
 from ..ast import PdPatch, parse, serialize
@@ -76,20 +78,42 @@ class _PrintAccumulator:
 _ERROR_PATTERNS = ("couldn't create", "no such object", "error:")
 _WARNING_PATTERNS = ("warning:", "deprecated")
 
+# PureData reports a failed object on two lines: the object's text on a
+# "verbose(0):" line, then a generic "error: ... couldn't create". Taken alone
+# the error names nothing, which is useless for telling the caller what to fix.
+_CONTEXT_LINE = re.compile(r"^verbose\(\d+\):\s*(.+)$")
+_CREATE_FAILURE = re.compile(r"couldn't create", re.IGNORECASE)
+
 
 def _classify_messages(lines: list[str]) -> tuple[list[str], list[str]]:
     """Classify accumulated libpd lines into errors and warnings.
+
+    A "couldn't create" error is annotated with the object text PureData logged
+    just before it, so the caller learns which object failed rather than only
+    that something did.
 
     Returns (errors, warnings).
     """
     errors: list[str] = []
     warnings: list[str] = []
+    context: Optional[str] = None
+
     for line in lines:
+        match = _CONTEXT_LINE.match(line)
+        if match:
+            context = match.group(1).strip()
+            continue
+
         lower = line.lower()
         if any(pat in lower for pat in _ERROR_PATTERNS):
-            errors.append(line)
+            if context and _CREATE_FAILURE.search(line) and context not in line:
+                errors.append(f"{line} [{context}]")
+            else:
+                errors.append(line)
         elif any(pat in lower for pat in _WARNING_PATTERNS):
             warnings.append(line)
+        context = None
+
     return errors, warnings
 
 
@@ -98,6 +122,11 @@ def _classify_messages(lines: list[str]) -> tuple[list[str], list[str]]:
 # ---------------------------------------------------------------------------
 
 _libpd_initialized = False
+
+# libpd is a single global instance: one search path list, one print callback.
+# Serialize access so two threads cannot interleave their patches or capture
+# each other's console output.
+_libpd_lock = threading.Lock()
 
 
 def _ensure_libpd() -> None:
@@ -145,6 +174,7 @@ def validate_patch(
     include_default_paths: bool = True,
     use_declare_paths: bool = True,
     check_receivers: Optional[Sequence[str]] = None,
+    work_dir: Optional[str] = None,
 ) -> ValidationResult:
     """Validate a PureData patch by loading it in libpd.
 
@@ -166,6 +196,17 @@ def validate_patch(
         patch (default ``True``).
     check_receivers : sequence of str, optional
         Receiver names to verify exist after loading the patch.
+    work_dir : str, optional
+        Directory to write the temporary patch into. Defaults to the system
+        temp directory, where a patch's sibling abstractions will not resolve --
+        pass the directory the patch belongs to when it references neighbouring
+        ``.pd`` files, or validation will report them as missing objects.
+
+    Notes
+    -----
+    libpd is a process-wide singleton, so calls are serialized internally and
+    the search path is reset afterwards. Do not rely on search paths configured
+    outside this function surviving a call.
 
     Returns
     -------
@@ -184,6 +225,30 @@ def validate_patch(
     import cypd
 
     content = _serialize_input(patch)
+
+    with _libpd_lock:
+        return _validate_locked(
+            cypd,
+            content,
+            search_paths=search_paths,
+            include_default_paths=include_default_paths,
+            use_declare_paths=use_declare_paths,
+            check_receivers=check_receivers,
+            work_dir=work_dir,
+        )
+
+
+def _validate_locked(
+    cypd: Any,
+    content: str,
+    *,
+    search_paths: Optional[Sequence[str]],
+    include_default_paths: bool,
+    use_declare_paths: bool,
+    check_receivers: Optional[Sequence[str]],
+    work_dir: Optional[str],
+) -> ValidationResult:
+    """Body of :func:`validate_patch`, run while holding the libpd lock."""
 
     # Set up print accumulator
     acc = _PrintAccumulator()
@@ -213,7 +278,9 @@ def validate_patch(
     tmp_path: Optional[str] = None
     patch_id = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".pd", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".pd", delete=False, dir=work_dir, encoding="utf-8"
+        ) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
 

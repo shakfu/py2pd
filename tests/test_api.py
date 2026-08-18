@@ -11,6 +11,7 @@ from py2pd import (
     NodeNotFoundError,
     Patcher,
     PdConnectionError,
+    PdConnectionWarning,
 )
 from py2pd.api import (
     _PROTECTED_TYPES,
@@ -2305,10 +2306,27 @@ class TestAbstraction:
         assert ab.source_path == str(pd_file)
 
     def test_add_abstraction_default_io(self):
+        """Without a source file the arity is unknown, so validation is skipped."""
         p = Patcher()
         ab = p.add_abstraction("unknown-abs")
-        assert ab.num_inlets == 0
-        assert ab.num_outlets == 0
+        assert ab.num_inlets is None
+        assert ab.num_outlets is None
+
+    def test_add_abstraction_without_counts_is_connectable(self):
+        """Defaulting to zero made every link to an abstraction raise."""
+        p = Patcher()
+        ab = p.add_abstraction("my-synth 440")
+        dac = p.add("dac~")
+        p.link(ab, dac)
+        p.link(ab, dac, inlet=1)
+        assert len(p.connections) == 2
+
+    def test_add_abstraction_explicit_counts_are_still_enforced(self):
+        p = Patcher()
+        ab = p.add_abstraction("my-synth 440", num_inlets=1, num_outlets=1)
+        dac = p.add("dac~")
+        with pytest.raises(PdConnectionError):
+            p.link(ab, dac, outlet=2)
 
     def test_add_via_source_path(self, tmp_path):
         """add() with source_path creates an Abstraction."""
@@ -3121,3 +3139,204 @@ class TestEarlyIndexValidation:
         assert obj1.num_outlets is None
         assert obj2.num_inlets is None
         p.link(obj1, obj2, outlet=99, inlet=99)
+
+
+class TestLinkIndexValidation:
+    """Negative indices are always an error; PureData rejects them outright."""
+
+    def test_negative_inlet_raises(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        with pytest.raises(PdConnectionError, match="Inlet index must be non-negative"):
+            p.link(osc, dac, inlet=-1)
+
+    def test_negative_outlet_raises(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        with pytest.raises(PdConnectionError, match="Outlet index must be non-negative"):
+            p.link(osc, dac, outlet=-1)
+
+    def test_negative_index_raises_even_when_validation_is_advisory(self):
+        """validate_links=False relaxes range checks, not sign checks."""
+        p = Patcher(validate_links=False)
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        with pytest.raises(PdConnectionError):
+            p.link(osc, dac, inlet=-1)
+
+
+class TestNodeIndexCache:
+    """link() resolves node positions in constant time without going stale."""
+
+    def test_indices_are_correct_after_direct_list_mutation(self):
+        p = Patcher()
+        first = p.add("osc~ 440")
+        inserted = Obj(0, 0, "dac~")
+        p.nodes.insert(0, inserted)  # bypasses _register entirely
+        p.link(first, inserted)
+        conn = p.connections[0]
+        assert p.nodes[conn.source] is first
+        assert p.nodes[conn.sink] is inserted
+
+    def test_indices_are_correct_after_optimize_removes_nodes(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        p.add("+~ 0.1")  # unconnected, will be removed
+        dac = p.add("dac~")
+        p.link(osc, dac)
+        p.optimize()
+        assert p.nodes == [osc, dac]  # the middle node is gone, so indices shifted
+        extra = p.add("*~ 0.5")
+        p.link(osc, extra)
+        assert p.nodes[p.connections[-1].source] is osc
+        assert p.nodes[p.connections[-1].sink] is extra
+
+    def test_missing_node_still_raises(self):
+        p = Patcher()
+        stranger = Obj(0, 0, "dac~")
+        osc = p.add("osc~ 440")
+        with pytest.raises(NodeNotFoundError):
+            p.link(osc, stranger)
+
+
+class TestValidateConnectionsContract:
+    def test_returns_empty_list_when_valid(self):
+        p = Patcher()
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        p.link(osc, dac)
+        assert p.validate_connections() == []
+
+    def test_returns_errors_when_not_raising(self):
+        p = Patcher(validate_links=False)
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        with pytest.warns(PdConnectionWarning):
+            p.link(osc, dac, inlet=9)
+        errors = p.validate_connections(check_cycles=False, raise_on_error=False)
+        assert len(errors) == 1
+        assert "Invalid inlet index 9" in errors[0]
+
+    def test_still_raises_by_default(self):
+        p = Patcher(validate_links=False)
+        osc = p.add("osc~ 440")
+        dac = p.add("dac~")
+        with pytest.warns(PdConnectionWarning):
+            p.link(osc, dac, inlet=9)
+        with pytest.raises(InvalidConnectionError):
+            p.validate_connections(check_cycles=False)
+
+
+class TestDetectCyclesIsIterative:
+    def test_deep_chain_does_not_overflow_the_stack(self):
+        p = Patcher()
+        previous = None
+        for _ in range(5000):
+            node = p.add("f")
+            if previous is not None:
+                p.link(previous, node)
+            previous = node
+        assert p.detect_cycles() == []
+
+    def test_feedback_loop_is_still_reported(self):
+        p = Patcher()
+        a, b, c = p.add("+~"), p.add("*~"), p.add("lop~ 100")
+        p.link(a, b)
+        p.link(b, c)
+        p.link(c, a)
+        assert p.detect_cycles() == [[0, 1, 2, 0]]
+
+    def test_self_loop_is_reported(self):
+        p = Patcher()
+        node = p.add("f")
+        p.link(node, node, inlet=1)
+        assert p.detect_cycles() == [[0, 0]]
+
+
+class TestCanvasGeometry:
+    def test_defaults_are_unchanged(self):
+        assert str(Patcher()).splitlines()[0] == "#N canvas 0 50 1000 600 10;"
+
+    def test_geometry_is_configurable(self):
+        p = Patcher(canvas_x=428, canvas_y=122, canvas_width=560, canvas_height=460, font_size=12)
+        assert str(p).splitlines()[0] == "#N canvas 428 122 560 460 12;"
+
+
+class TestCommentEscaping:
+    def test_separators_are_escaped(self):
+        p = Patcher()
+        comment = p.add_comment("gain stage; adjust, carefully")
+        rendered = str(comment)
+        assert r"\;" in rendered and r"\," in rendered
+        # One statement, not three.
+        assert rendered.strip().count(";") == 1 + rendered.count(r"\;")
+
+    def test_escaped_flag_stores_verbatim(self):
+        p = Patcher()
+        comment = p.add_comment(r"already \; escaped", escaped=True)
+        assert comment.parameters["content"] == r"already \; escaped"
+
+    def test_add_comment_positions_like_other_nodes(self):
+        p = Patcher()
+        p.add("osc~ 440")
+        comment = p.add_comment("hello", x_pos=200, y_pos=300)
+        assert comment.position == (200, 300)
+
+
+class TestOptimizeKeepsStructuralObjects:
+    """Objects that work with no patch cords must survive the unused-element pass."""
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "table mytable 44100",
+            "block~ 64",
+            "switch~",
+            "declare -path extra",
+            "namecanvas mycanvas",
+            "inlet",
+            "outlet",
+            "inlet~",
+            "outlet~",
+            "struct point float x",
+        ],
+    )
+    def test_structural_object_is_kept(self, text):
+        p = Patcher()
+        node = p.add(text)
+        result = p.optimize()
+        assert result["nodes_removed"] == 0
+        assert node in p.nodes
+
+    def test_ordinary_disconnected_object_is_still_removed(self):
+        p = Patcher()
+        p.add("+~ 0.1")
+        assert p.optimize()["nodes_removed"] == 1
+        assert p.nodes == []
+
+
+class TestPdClassName:
+    """Every node reports the class name a validator should check it against."""
+
+    def test_object_reports_its_class(self):
+        assert Patcher().add("osc~ 440").pd_class_name == "osc~"
+
+    def test_gui_nodes_report_their_pd_class(self):
+        p = Patcher()
+        assert p.add_bang().pd_class_name == "bng"
+        assert p.add_toggle().pd_class_name == "tgl"
+        assert p.add_vu().pd_class_name == "vu"
+        assert p.add_float().pd_class_name == "floatatom"
+        assert p.add_symbol().pd_class_name == "symbolatom"
+
+    def test_nodes_without_a_builtin_class_report_none(self):
+        p = Patcher()
+        assert p.add_msg("bang").pd_class_name is None
+        assert p.add_comment("hi").pd_class_name is None
+        assert p.add_array("a", 8).pd_class_name is None
+        assert p.add_abstraction("my-reverb").pd_class_name is None
+
+    def test_empty_object_text_reports_none(self):
+        assert Patcher().add("").pd_class_name is None

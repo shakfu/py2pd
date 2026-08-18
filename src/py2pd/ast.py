@@ -81,6 +81,11 @@ class PdObj:
     args: Tuple[str, ...] = field(default_factory=tuple)
 
     @property
+    def pd_class_name(self) -> Optional[str]:
+        """The PureData class name a validator should check this element against."""
+        return self.class_name
+
+    @property
     def text(self) -> str:
         """Full object text as it appears in the patch (class name + args)."""
         if self.args:
@@ -116,6 +121,10 @@ class PdFloatAtom:
     send: str = "-"
     font_size: Optional[int] = None
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "floatatom"
+
     def __str__(self) -> str:
         tail = "" if self.font_size is None else f" {self.font_size}"
         return (
@@ -138,6 +147,10 @@ class PdSymbolAtom:
     receive: str = "-"
     send: str = "-"
     font_size: Optional[int] = None
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "symbolatom"
 
     def __str__(self) -> str:
         tail = "" if self.font_size is None else f" {self.font_size}"
@@ -291,8 +304,9 @@ class PdRestore:
     """Subpatch restore command (``#X restore``).
 
     Pd closes a nested canvas with either ``#X restore <x> <y> pd <name>;`` for a
-    subpatch or ``#X restore <x> <y> graph;`` for an array/graph canvas.  *kind*
-    records which form was used so both serialize back unchanged.
+    subpatch or ``#X restore <x> <y> graph;`` for an array/graph canvas. Older
+    files use a bare ``#X pop;``. *kind* records which form was used so all
+    three serialize back unchanged.
     """
 
     position: Position
@@ -305,6 +319,8 @@ class PdRestore:
         return self.kind == "graph"
 
     def __str__(self) -> str:
+        if self.kind == "pop":
+            return "#X pop;"
         if not self.name:
             return f"#X restore {self.position} {self.kind};"
         return f"#X restore {self.position} {self.kind} {self.name};"
@@ -330,6 +346,10 @@ class PdBng:
     bg_color: IemColor = -262144
     fg_color: IemColor = -1
     label_color: IemColor = -1
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "bng"
 
     def __str__(self) -> str:
         return (
@@ -359,6 +379,10 @@ class PdTgl:
     label_color: IemColor = -1
     init_value: int = 0
     default_value: int = 0
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "tgl"
 
     def __str__(self) -> str:
         return (
@@ -393,6 +417,10 @@ class PdNbx:
     label_color: IemColor = -1
     init_value: float = 0.0
     log_height: int = 256
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "nbx"
 
     def __str__(self) -> str:
         return (
@@ -429,6 +457,10 @@ class PdVsl:
     init_value: float = 0.0
     steady: int = 1
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "vsl"
+
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} vsl {self.width} {self.height} "
@@ -464,6 +496,10 @@ class PdHsl:
     init_value: float = 0.0
     steady: int = 1
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "hsl"
+
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} hsl {self.width} {self.height} "
@@ -496,6 +532,10 @@ class PdVradio:
     label_color: IemColor = -1
     init_value: int = 0
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "vradio"
+
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} vradio {self.size} {self.new_old} "
@@ -526,6 +566,10 @@ class PdHradio:
     label_color: IemColor = -1
     init_value: int = 0
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "hradio"
+
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} hradio {self.size} {self.new_old} "
@@ -553,6 +597,10 @@ class PdCnv:
     bg_color: IemColor = -233017
     label_color: IemColor = -1
 
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "cnv"
+
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} cnv {self.size} {self.width} "
@@ -578,6 +626,10 @@ class PdVu:
     bg_color: IemColor = -262144
     label_color: IemColor = -1
     scale: int = 1
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "vu"
 
     def __str__(self) -> str:
         return (
@@ -620,6 +672,10 @@ class PdSubpatch:
     canvas: CanvasProperties
     elements: List[PdElement] = field(default_factory=list)
     restore: Optional[PdRestore] = None
+
+    @property
+    def pd_class_name(self) -> Optional[str]:
+        return "pd"
 
     def __str__(self) -> str:
         lines = [f"#N canvas {self.canvas};"]
@@ -1320,8 +1376,17 @@ def parse(content: str) -> PdPatch:
                 else:
                     raise ParseError("Restore without matching canvas")
             elif cmd == "pop":
-                # Some patches use #X pop instead of #X restore
-                pass
+                # Older patches close a canvas with "#X pop" instead of
+                # "#X restore". Ignoring it left the canvas on the stack, so
+                # everything after it was parsed into the wrong subpatch.
+                subpatch = PdSubpatch(
+                    current_canvas, current_elements, PdRestore(Position(0, 0), "", "pop")
+                )
+                if patch_stack:
+                    current_canvas, current_elements = patch_stack.pop()
+                    current_elements.append(subpatch)
+                else:
+                    raise ParseError("Pop without matching canvas")
             else:
                 # Anything outside the modelled subset is preserved verbatim
                 # rather than guessed at.  Rewriting an unrecognised directive
@@ -1431,7 +1496,13 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
     """
     from . import api
 
-    canvas = CanvasProperties()
+    canvas = CanvasProperties(
+        patch.canvas_x,
+        patch.canvas_y,
+        patch.canvas_width,
+        patch.canvas_height,
+        patch.font_size,
+    )
     elements: List[PdElement] = []
 
     for node in patch.nodes:
@@ -1765,7 +1836,14 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
     # The object registry cannot know the arity of externals, abstractions, or
     # objects it has no entry for. A patch PureData accepts must still be
     # representable here, so out-of-range indices warn rather than raise.
-    patch = api.Patcher(validate_links=False)
+    patch = api.Patcher(
+        validate_links=False,
+        canvas_x=ast.canvas.x,
+        canvas_y=ast.canvas.y,
+        canvas_width=ast.canvas.width,
+        canvas_height=ast.canvas.height,
+        font_size=ast.canvas.font_size,
+    )
 
     # First pass: create all nodes (non-connections)
     node_map: List[Optional[api.Node]] = []  # Track nodes for linking
@@ -1814,7 +1892,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node_map.append(node)
 
         elif isinstance(elem, PdText):
-            node = api.Comment(elem.position.x, elem.position.y, elem.content)
+            node = api.Comment(elem.position.x, elem.position.y, elem.content, escaped=True)
             patch.nodes.append(node)
             node_map.append(node)
 

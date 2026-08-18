@@ -303,3 +303,32 @@ class TestValidatePatchIntegration:
         p.add("print hello")
         result = validate_patch(p)
         assert isinstance(result.log, list)
+
+
+class TestCreateFailureContext:
+    """PureData logs the failing object's text on the line before the error."""
+
+    def test_object_name_is_attached_to_the_error(self):
+        lines = ["verbose(0): __bogus_object__", "error: ... couldn't create"]
+        errors, warnings = _classify_messages(lines)
+        assert len(errors) == 1
+        assert "__bogus_object__" in errors[0]
+
+    def test_context_is_not_duplicated_when_already_present(self):
+        lines = ["verbose(0): bogus", "bogus: couldn't create"]
+        errors, _ = _classify_messages(lines)
+        assert errors == ["bogus: couldn't create"]
+
+    def test_context_only_applies_to_the_next_line(self):
+        lines = ["verbose(0): foo", "all fine here", "error: ... couldn't create"]
+        errors, _ = _classify_messages(lines)
+        assert errors == ["error: ... couldn't create"]
+
+    def test_verbose_lines_are_not_themselves_errors(self):
+        errors, warnings = _classify_messages(["verbose(0): something"])
+        assert errors == []
+        assert warnings == []
+
+    def test_unrelated_errors_are_untouched(self):
+        errors, _ = _classify_messages(["error: something went wrong"])
+        assert errors == ["error: something went wrong"]

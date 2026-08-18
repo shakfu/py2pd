@@ -28,12 +28,15 @@ Usage::
 from dataclasses import dataclass, field
 from enum import Enum
 import os
+import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Optional, Sequence, Union
 
 from ..api import LayoutManager, Obj, Patcher, Subpatch
-from ..ast import PdObj, PdPatch, PdSubpatch, serialize
+from ..ast import PdPatch, PdSubpatch, serialize
 
 # ---------------------------------------------------------------------------
 # Object registry
@@ -315,39 +318,52 @@ def _check_object_supported(
 
 
 def _walk_builder_nodes(patch: Patcher) -> list[str]:
-    """Extract object class names from a Patcher, recursing into subpatches."""
+    """Collect the class name of every node in a Patcher, recursing into subpatches."""
     names: list[str] = []
     _walk_builder_nodes_into(patch, names)
     return names
 
 
 def _walk_builder_nodes_into(patch: Patcher, names: list[str]) -> None:
-    """Recursive helper for _walk_builder_nodes."""
+    """Recursive helper for _walk_builder_nodes.
+
+    Every node type is considered, not just ``Obj``: the GUI classes are object
+    boxes too (``bng``, ``tgl``, ``vu``, ...) and hvcc supports only some of
+    them. Nodes with no class name -- messages, comments, arrays and
+    abstractions -- report None and are skipped, since there is nothing to look
+    up in a registry of built-in objects.
+    """
     for node in patch.nodes:
         if isinstance(node, Subpatch):
+            names.append("pd")
             _walk_builder_nodes_into(node.src, names)
             continue
-        if isinstance(node, Obj):
-            text = node.parameters.get("text", "")
-            parts = text.split()
-            if parts:
-                names.append(parts[0])
+        name = node.pd_class_name
+        if name is not None:
+            names.append(name)
 
 
 def _walk_ast_nodes(patch: PdPatch) -> list[str]:
-    """Extract object class names from a PdPatch AST, recursing into subpatches."""
+    """Collect the class name of every element in a PdPatch, recursing into subpatches."""
     names: list[str] = []
     _walk_ast_elements(patch.elements, names)
     return names
 
 
 def _walk_ast_elements(elements: list, names: list[str]) -> None:
-    """Recursive helper for _walk_ast_nodes."""
+    """Recursive helper for _walk_ast_nodes.
+
+    Mirrors the builder walk: the GUI dataclasses are not ``PdObj`` subclasses,
+    so matching on ``PdObj`` alone would skip every one of them.
+    """
     for elem in elements:
-        if isinstance(elem, PdObj):
-            names.append(elem.class_name)
-        elif isinstance(elem, PdSubpatch):
+        if isinstance(elem, PdSubpatch):
+            names.append("pd")
             _walk_ast_elements(elem.elements, names)
+            continue
+        name = getattr(elem, "pd_class_name", None)
+        if name is not None:
+            names.append(name)
 
 
 def validate_for_hvcc(
@@ -456,11 +472,6 @@ class HeavyPatcher(Patcher):
         Obj
             The created object
         """
-        parts = text.split()
-        class_name = parts[0] if parts else ""
-        errs = _check_object_supported(class_name, self.generators)
-        if errs:
-            raise HvccUnsupportedError([class_name])
         return super().add(
             text,
             source_path=source_path,
@@ -472,6 +483,20 @@ class HeavyPatcher(Patcher):
             num_outlets=num_outlets,
             escaped=escaped,
         )
+
+    def _register(self, node, pos_update=None) -> None:  # type: ignore[no-untyped-def]
+        """Reject unsupported objects however they were added.
+
+        Every ``add_*`` method funnels through ``Patcher._register()``, so
+        validating here covers the GUI constructors, ``add_subpatch()`` and the
+        rest -- not only ``add()``, which is all the previous override caught.
+        """
+        class_name = node.pd_class_name
+        if class_name is not None:
+            errs = _check_object_supported(class_name, self.generators)
+            if errs:
+                raise HvccUnsupportedError([class_name])
+        super()._register(node, pos_update)
 
     def add_param(
         self,
@@ -591,6 +616,27 @@ class HeavyPatcher(Patcher):
 # ---------------------------------------------------------------------------
 
 
+def _hvcc_executable() -> str:
+    """Locate the hvcc console script.
+
+    ``import hvcc`` succeeding says the package is importable, which is not the
+    same as its entry point being on PATH -- a virtualenv that has not been
+    activated is the common case. Look beside the running interpreter first,
+    then fall back to PATH.
+    """
+    local = os.path.join(os.path.dirname(sys.executable), "hvcc")
+    for candidate in (local, local + ".exe"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return shutil.which("hvcc") or "hvcc"
+
+
+# Anchored so that a path or identifier merely containing "error" -- say
+# /home/me/error-handling/patch.pd -- is not reported as a compiler error.
+_ERROR_LINE = re.compile(r"(?:^|\W)errors?\b\s*:|(?:^|\W)(?:failed|exception)\b", re.IGNORECASE)
+_WARNING_LINE = re.compile(r"(?:^|\W)warnings?\b\s*:", re.IGNORECASE)
+
+
 @dataclass
 class HvccCompileResult:
     """Result of running the hvcc compiler."""
@@ -613,6 +659,7 @@ def compile_hvcc(
     metadata_file: str | None = None,
     copyright: str | None = None,
     validate: bool = True,
+    timeout: float | None = 600.0,
 ) -> HvccCompileResult:
     """Compile a patch using the hvcc CLI.
 
@@ -637,10 +684,15 @@ def compile_hvcc(
         Copyright string for hvcc ``--copyright``.
     validate : bool
         If True (default), run ``validate_for_hvcc()`` before compiling.
+    timeout : float, optional
+        Seconds to wait for the compiler before giving up (default: 600).
+        Pass None to wait indefinitely.
 
     Returns
     -------
     HvccCompileResult
+        ``ok`` is False, rather than an exception being raised, when the
+        compiler cannot be launched, times out, or exits non-zero.
 
     Raises
     ------
@@ -682,8 +734,7 @@ def compile_hvcc(
             tmp.write(content)
             tmp_path = tmp.name
 
-        # Build command
-        cmd = ["hvcc", tmp_path, "-o", output_dir, "-n", name]
+        cmd = [_hvcc_executable(), tmp_path, "-o", output_dir, "-n", name]
         for gen in generators:
             gen_val = gen.value if isinstance(gen, HvccGenerator) else str(gen)
             cmd.extend(["-g", gen_val])
@@ -695,15 +746,27 @@ def compile_hvcc(
         if copyright:
             cmd.extend(["--copyright", copyright])
 
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except FileNotFoundError as exc:
+            return HvccCompileResult(
+                ok=False,
+                output_dir=output_dir,
+                errors=[f"could not run the hvcc compiler: {exc}"],
+            )
+        except subprocess.TimeoutExpired:
+            return HvccCompileResult(
+                ok=False,
+                output_dir=output_dir,
+                errors=[f"hvcc timed out after {timeout} seconds"],
+            )
 
         errors: list[str] = []
         warnings: list[str] = []
         for line in proc.stderr.splitlines():
-            lower = line.lower()
-            if "error" in lower:
+            if _ERROR_LINE.search(line):
                 errors.append(line)
-            elif "warning" in lower:
+            elif _WARNING_LINE.search(line):
                 warnings.append(line)
 
         if proc.returncode != 0 and not errors:

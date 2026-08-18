@@ -24,17 +24,20 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
+      # --all-extras installs cypd and hvcc. Without them the integration tests
+      # silently skip, which is how the hvcc and libpd code paths went
+      # unexercised despite a green build.
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --all-groups --all-extras
 
       - name: Lint
         run: uv run ruff check src/ tests/
 
       - name: Type check
-        run: uv run mypy src/
+        run: uv run mypy src/ tests/
 
       - name: Test
-        run: uv run pytest tests/ -v
+        run: uv run pytest tests/ -v --cov-fail-under=90
 
   build:
     runs-on: ubuntu-latest
