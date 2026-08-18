@@ -29,7 +29,16 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-extras = ["cypd", "hvcc"]
+# cypd ships binary wheels only for the platforms libpd is built for, and has no
+# source distribution, so on any other platform resolution fails outright rather
+# than falling back to a build. The marker keeps `pip install py2pd[extras]`
+# working everywhere; where cypd is absent, py2pd.integrations.cypd raises a
+# clear ImportError if you try to use it.
+# Wheel matrix: https://pypi.org/project/cypd/#files
+extras = [
+    "cypd; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64')",
+    "hvcc",
+]
 
 [project.urls]
 Homepage = "https://github.com/shakfu/py2pd"

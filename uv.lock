@@ -778,7 +778,7 @@ source = { editable = "." }
 
 [package.optional-dependencies]
 extras = [
-    { name = "cypd" },
+    { name = "cypd", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "hvcc" },
 ]
 
@@ -798,7 +798,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cypd", marker = "extra == 'extras'" },
+    { name = "cypd", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'extras') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extras')" },
     { name = "hvcc", marker = "extra == 'extras'" },
 ]
 provides-extras = ["extras"]

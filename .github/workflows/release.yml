@@ -15,10 +15,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
+      # setup-uv stopped publishing floating major tags at v8 (supply-chain
+      # hardening), so this must be an exact version -- `@v10` does not resolve.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
 
       - name: Install dependencies
         run: uv sync --all-groups --all-extras
@@ -37,7 +39,7 @@ jobs:
         run: uv run twine check dist/*
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -50,7 +52,7 @@ jobs:
       id-token: write # required for Trusted Publishing
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/

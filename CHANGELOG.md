@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pip install py2pd[extras]` failed outright on Windows and Linux ARM.** `cypd` publishes binary wheels only for macOS arm64 and Linux x86_64 and has no source distribution, so resolution errored rather than skipping it. The dependency now carries an environment marker matching the platforms it ships for; elsewhere the extra installs `hvcc` alone, and the libpd integration raises its usual ImportError if used. This also unbroke the Windows CI job, which had started installing the extras.
+- **CI actions were pinned to versions running the deprecated Node 20 runtime**, which the runners were already force-migrating to Node 24 and warning about on every run. Bumped to `actions/checkout@v7`, `actions/upload-artifact@v7` and `actions/download-artifact@v8`. `astral-sh/setup-uv` moved to an exact `@v10.0.1`: it stopped publishing floating major tags at v8 as a supply-chain measure, so `@v10` does not resolve.
+
 ## [0.2.0]
 
 Corrects the parser against PureData's actual file format. Every finding in `REVIEW.md` is addressed. Against the 371 patches shipped with PureData 0.55, parse errors went from 126 to 0 and byte-identical round-trips from 24 to 345; the remainder differ only where older PureData versions wrapped statements across physical lines, which 0.55 no longer does.
