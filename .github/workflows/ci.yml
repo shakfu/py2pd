@@ -63,3 +63,20 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      # mkdocs.yml sets strict: true, so a broken link or an API reference
+      # mkdocstrings cannot resolve fails the build rather than rotting quietly.
+      - name: Build docs
+        run: uv run mkdocs build

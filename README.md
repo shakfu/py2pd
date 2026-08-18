@@ -7,17 +7,29 @@ py2pd is a fork and extensive rewrite of Dylan Burati's [puredata-compiler](http
 ## Features
 
 - **Builder API** -- imperative patch construction with `add()`, `link()`, and automatic layout
+
 - **AST API** -- round-trip parsing of `.pd` files via frozen dataclasses, preserving statements it does not model (data structures, scalars, array data) verbatim
+
 - **Bridging** -- convert freely between Builder and AST with `from_builder()` / `to_builder()`
+
 - **All GUI types** -- Bang, Toggle, NumberBox, Symbol, HSlider, VSlider, HRadio, VRadio, Canvas, VU
+
 - **Subpatches** -- nested patches with auto-inferred inlet/outlet counts and graph-on-parent support
+
 - **Abstractions** -- reference external `.pd` files with auto-inferred I/O
+
 - **Connection validation** -- index checking against a registry of common Pd objects, including those whose inlet and outlet counts depend on their creation arguments
+
 - **Patch optimization** -- deduplicate connections, collapse pass-throughs, remove unused nodes
+
 - **SVG export** -- visualize patches as SVG
+
 - **Externals discovery** -- platform-aware scanning for `.pd` abstractions and binary externals
+
 - **libpd validation** -- load patches into libpd via [cypd](https://github.com/shakfu/cypd) and check for errors (`pip install py2pd[extras]`)
+
 - **hvcc integration** -- validate and compile patches with the [Heavy Compiler Collection](https://github.com/Wasted-Audio/hvcc) (`pip install py2pd[extras]`)
+
 - **Zero runtime dependencies** -- Python 3.13+, no required dependencies
 
 ## Install
@@ -233,7 +245,9 @@ result = p.optimize()
 The three passes run in order:
 
 1. **Deduplicate connections** -- removes exact-duplicate patch cords.
+
 2. **Pass-through collapse** -- bypasses single-in/single-out nodes (opt-in via `collapsible_objects`). A run of adjacent collapsible nodes is joined end to end into a single connection.
+
 3. **Unused element removal** -- removes disconnected `Obj` nodes. GUI elements, comments, subpatches, abstractions, arrays, messages, and floats are never removed. Nor are objects that do their job without patch cords -- `inlet`, `outlet`, `table`, `array`, `declare`, `block~`, `switch~`, `namecanvas` and friends -- since being disconnected says nothing about whether they are used. Nodes with active send/receive parameters are preserved.
 
 Use `recursive=True` to optimize inner subpatches as well:
@@ -321,8 +335,7 @@ from py2pd.ast import PdPatch, PdObj, PdMsg, Position, transform, find_objects
 | `add_canvas()` | Background/label area |
 | `add_vu()` | VU meter |
 
-Non-GUI helpers: `add_comment()` adds a `#X text` comment, escaping separators
-so a semicolon in the text does not end the statement.
+Non-GUI helpers: `add_comment()` adds a `#X text` comment, escaping separators so a semicolon in the text does not end the statement.
 
 All GUI `add_*` methods accept every parameter from the underlying constructor, including IEM styling options (`label_x`, `label_y`, `font`, `font_size`, `bg_color`, `fg_color`, `label_color`, etc.). Defaults match PureData's standard values.
 
@@ -372,16 +385,13 @@ if not result.ok:
     print("Warnings:", result.warnings)
 ```
 
-The patch is written to a temporary file, so a patch that references sibling
-abstractions will report them as missing. Pass `work_dir` to validate in the
-directory the patch belongs to:
+The patch is written to a temporary file, so a patch that references sibling abstractions will report them as missing. Pass `work_dir` to validate in the directory the patch belongs to:
 
 ```python
 result = validate_patch(p, work_dir='patches/')
 ```
 
-libpd is a process-wide singleton, so calls are serialised internally and the
-search path is reset afterwards.
+libpd is a process-wide singleton, so calls are serialised internally and the search path is reset afterwards.
 
 ### hvcc (Heavy Compiler Collection)
 
@@ -391,9 +401,7 @@ Build patches compatible with the [hvcc](https://github.com/Wasted-Audio/hvcc) c
 pip install py2pd[extras]
 ```
 
-**HeavyPatcher** validates objects at add-time, across every `add_*` method --
-GUI constructors included, so an unsupported object such as `vu` is rejected
-where it is added rather than surfacing at compile time:
+**HeavyPatcher** validates objects at add-time, across every `add_*` method -- GUI constructors included, so an unsupported object such as `vu` is rejected where it is added rather than surfacing at compile time:
 
 ```python
 from py2pd.integrations.hvcc import HeavyPatcher, HvccGenerator

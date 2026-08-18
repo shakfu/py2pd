@@ -1,0 +1,78 @@
+site_name: py2pd
+site_description: Roundtrip parsing and generation of PureData patches from Python
+site_author: Shakeeb Alireza
+# The GitHub Pages project site that `make docs-deploy` publishes to. Needed for
+# correct canonical links and a valid sitemap.
+site_url: https://shakfu.github.io/py2pd/
+repo_url: https://github.com/shakfu/py2pd
+repo_name: shakfu/py2pd
+copyright: Copyright &copy; 2026 Shakeeb Alireza
+
+docs_dir: docs
+site_dir: site
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - API Reference: api.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            # Docstrings throughout the codebase are NumPy style.
+            docstring_style: numpy
+            docstring_section_style: table
+            members_order: source
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            show_source: false
+            filters: ["!^_"]
+            heading_level: 3
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+# Fail the build on a broken internal link or a reference mkdocstrings cannot
+# resolve, so documentation cannot quietly rot the way the Sphinx version's
+# hardcoded release string did.
+strict: true
