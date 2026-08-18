@@ -1,6 +1,6 @@
 from collections import deque
 import re
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple, Union
 import warnings
 
 # Layout constants (pixels)
@@ -3841,7 +3841,7 @@ class Patcher:
         lines.append("</svg>")
         return "\n".join(lines)
 
-    def save_svg(self, filename: str, **kwargs) -> None:
+    def save_svg(self, filename: str, **kwargs: Any) -> None:
         """Save the patch visualization as an SVG file.
 
         Parameters
@@ -3906,7 +3906,7 @@ class Patcher:
         self,
         *,
         recursive: bool = False,
-        collapsible_objects: frozenset = frozenset(),
+        collapsible_objects: FrozenSet[str] = frozenset(),
     ) -> Dict[str, int]:
         """Remove unused elements and simplify connections.
 
@@ -4185,7 +4185,7 @@ class Patcher:
                     prev_positions[node_idx] = i
 
                 # Sort current row nodes by average parent position
-                def parent_position(node_idx):
+                def parent_position(node_idx: int) -> float:
                     parents = [p for p in incoming[node_idx] if p in prev_positions]
                     if parents:
                         return sum(prev_positions[p] for p in parents) / len(parents)

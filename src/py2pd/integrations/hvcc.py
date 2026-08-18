@@ -33,10 +33,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Optional, Sequence, Union
+from typing import Any, Callable, Optional, Sequence, Union
 
-from ..api import LayoutManager, Obj, Patcher, Subpatch
-from ..ast import PdPatch, PdSubpatch, serialize
+from ..api import LayoutManager, Node, Obj, Patcher, Subpatch
+from ..ast import PdElement, PdPatch, PdSubpatch, serialize
 
 # ---------------------------------------------------------------------------
 # Object registry
@@ -350,7 +350,7 @@ def _walk_ast_nodes(patch: PdPatch) -> list[str]:
     return names
 
 
-def _walk_ast_elements(elements: list, names: list[str]) -> None:
+def _walk_ast_elements(elements: list[PdElement], names: list[str]) -> None:
     """Recursive helper for _walk_ast_nodes.
 
     Mirrors the builder walk: the GUI dataclasses are not ``PdObj`` subclasses,
@@ -484,7 +484,7 @@ class HeavyPatcher(Patcher):
             escaped=escaped,
         )
 
-    def _register(self, node, pos_update=None) -> None:  # type: ignore[no-untyped-def]
+    def _register(self, node: Node, pos_update: Optional[Callable[[Node], None]] = None) -> None:
         """Reject unsupported objects however they were added.
 
         Every ``add_*`` method funnels through ``Patcher._register()``, so
@@ -506,7 +506,7 @@ class HeavyPatcher(Patcher):
         max_val: float = 1.0,
         default: float = 0.5,
         type: str = "float",
-        **kwargs,
+        **kwargs: Any,
     ) -> Obj:
         """Add a ``[r name @hv_param min max default [type]]`` receiver.
 
@@ -538,7 +538,7 @@ class HeavyPatcher(Patcher):
             text += f" {type}"
         return self.add(text, **kwargs)
 
-    def add_param_output(self, name: str, **kwargs) -> Obj:
+    def add_param_output(self, name: str, **kwargs: Any) -> Obj:
         """Add a ``[s name @hv_param]`` sender for output parameters.
 
         Parameters
@@ -555,7 +555,7 @@ class HeavyPatcher(Patcher):
         """
         return self.add(f"s {name} @hv_param", **kwargs)
 
-    def add_event(self, name: str, **kwargs) -> Obj:
+    def add_event(self, name: str, **kwargs: Any) -> Obj:
         """Add a ``[r name @hv_event]`` receiver for events.
 
         Parameters
@@ -578,7 +578,7 @@ class HeavyPatcher(Patcher):
         size: int,
         *,
         expose: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> Obj:
         """Add a ``[table name size [@hv_table]]`` object.
 

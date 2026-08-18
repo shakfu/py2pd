@@ -16,7 +16,7 @@ Example usage:
 """
 
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
 import warnings
 
 if TYPE_CHECKING:
@@ -638,6 +638,14 @@ class PdVu:
             f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
             f"{self.bg_color} {self.label_color} {self.scale} 0;"
         )
+
+
+# Callback signatures used by the AST utility functions.
+ElementTransformer = Callable[["PdElement"], Optional["PdElement"]]
+"""Maps an element to a replacement, or to None to drop it."""
+
+ElementPredicate = Callable[["PdElement"], bool]
+"""Answers whether an element is one the caller is looking for."""
 
 
 # Union type for all elements that can appear in a patch
@@ -1906,7 +1914,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             name = elem.restore.name if elem.restore else "subpatch"
             pos = elem.restore.position if elem.restore else Position(0, 0)
             # Extract GOP settings from PdCoords if present
-            gop_kwargs: dict = {}
+            gop_kwargs: dict[str, Any] = {}
             for sub_elem in elem.elements:
                 if isinstance(sub_elem, PdCoords) and sub_elem.graph_on_parent >= 1:
                     gop_kwargs["graph_on_parent"] = True
@@ -2193,7 +2201,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
 # AST manipulation utilities
 
 
-def transform(patch: PdPatch, transformer) -> PdPatch:
+def transform(patch: PdPatch, transformer: ElementTransformer) -> PdPatch:
     """Apply a transformation function to all elements in a patch.
 
     Parameters
@@ -2203,13 +2211,14 @@ def transform(patch: PdPatch, transformer) -> PdPatch:
     transformer : callable
         A function that takes a PdElement and returns a PdElement or None.
         If None is returned, the element is removed.
+        See the ``ElementTransformer`` alias.
 
     Returns
     -------
     PdPatch
         A new patch with transformed elements
     """
-    new_elements = []
+    new_elements: List[PdElement] = []
     for elem in patch.elements:
         if isinstance(elem, PdSubpatch):
             # Recursively transform subpatch
@@ -2224,7 +2233,7 @@ def transform(patch: PdPatch, transformer) -> PdPatch:
     return PdPatch(patch.canvas, new_elements)
 
 
-def find_objects(patch: PdPatch, predicate) -> List[PdElement]:
+def find_objects(patch: PdPatch, predicate: ElementPredicate) -> List[PdElement]:
     """Find all elements in a patch matching a predicate.
 
     Parameters
@@ -2232,14 +2241,15 @@ def find_objects(patch: PdPatch, predicate) -> List[PdElement]:
     patch : PdPatch
         The patch to search
     predicate : callable
-        A function that takes a PdElement and returns bool
+        A function that takes a PdElement and returns bool.
+        See the ``ElementPredicate`` alias.
 
     Returns
     -------
     list of PdElement
         All matching elements
     """
-    results = []
+    results: List[PdElement] = []
     for elem in patch.elements:
         if predicate(elem):
             results.append(elem)

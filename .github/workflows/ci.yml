@@ -33,8 +33,11 @@ jobs:
       - name: Lint
         run: uv run ruff check src/ tests/
 
+      # Mirrors `make typecheck`: strict on the library, ordinary on tests.
       - name: Type check
-        run: uv run mypy src/ tests/
+        run: |
+          uv run mypy --strict src/
+          uv run mypy tests/
 
       - name: Test
         run: uv run pytest tests/ -v --cov-fail-under=90

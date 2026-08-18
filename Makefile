@@ -11,7 +11,8 @@ format:
 	@uv run ruff format src/ tests/
 
 typecheck:
-	@uv run mypy src/ tests/
+	@uv run mypy --strict src/ 
+	@uv run mypy tests/
 
 qa: test lint typecheck format
 

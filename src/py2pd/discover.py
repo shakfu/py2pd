@@ -12,7 +12,7 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 from .api import _infer_abstraction_io
-from .ast import PdDeclare, PdPatch, PdSubpatch
+from .ast import PdDeclare, PdElement, PdPatch, PdSubpatch
 
 # Maps sys.platform prefix to recognized binary extensions for externals
 _EXTERNAL_EXTENSIONS = {
@@ -165,7 +165,7 @@ def extract_declare_paths(patch: PdPatch) -> List[str]:
     return result
 
 
-def _collect_declare_paths(elements: list, out: List[str]) -> None:
+def _collect_declare_paths(elements: List[PdElement], out: List[str]) -> None:
     """Recursively collect declare paths from elements."""
     for elem in elements:
         if isinstance(elem, PdDeclare):

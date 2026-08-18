@@ -26,7 +26,8 @@ jobs:
       - name: Verify the release commit passes checks
         run: |
           uv run ruff check src/ tests/
-          uv run mypy src/ tests/
+          uv run mypy --strict src/
+          uv run mypy tests/
           uv run pytest tests/ -q --cov-fail-under=90
 
       - name: Build
