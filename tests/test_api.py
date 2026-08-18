@@ -28,6 +28,7 @@ from py2pd.api import (
     IEM_LABEL_COLOR,
     LINE_HEIGHT,
     MIN_ELEMENT_WIDTH,
+    PD_OBJECT_IO_RULES,
     PD_OBJECT_REGISTRY,
     ROW_HEIGHT,
     SUBPATCH_CANVAS_HEIGHT,
@@ -56,6 +57,7 @@ from py2pd.api import (
     _infer_abstraction_io,
     escape,
     get_display_lines,
+    lookup_object_io,
     unescape,
 )
 
@@ -2077,12 +2079,32 @@ class TestPdObjectRegistry:
         assert osc.num_inlets == 10
         assert osc.num_outlets == 1  # from registry
 
-    def test_registry_variable_outlets(self):
-        """Objects with None (variable) outlets keep None."""
+    def test_registry_argument_dependent_outlets(self):
+        """[trigger] has one outlet per type argument, resolved from the text."""
         patch = Patcher()
         t = patch.add("trigger b f")
         assert t.num_inlets == 1
-        assert t.num_outlets is None  # variable
+        assert t.num_outlets == 2
+
+    def test_registry_argument_dependent_outlets_bare(self):
+        """A bare [trigger] behaves as [trigger bang bang]."""
+        patch = Patcher()
+        t = patch.add("trigger")
+        assert (t.num_inlets, t.num_outlets) == (1, 2)
+
+    def test_registry_argument_dependent_channels(self):
+        """[dac~] takes one inlet per named channel."""
+        patch = Patcher()
+        assert patch.add("dac~").num_inlets == 2
+        assert patch.add("dac~ 1").num_inlets == 1
+        assert patch.add("dac~ 1 2 3 4").num_inlets == 4
+
+    def test_registry_unknown_object_skips_validation(self):
+        """An object with no registry entry has unknown arity, so nothing is enforced."""
+        patch = Patcher()
+        obj = patch.add("some-external~ 1 2")
+        assert obj.num_inlets is None
+        assert obj.num_outlets is None
 
     def test_registry_control_math(self):
         patch = Patcher()
@@ -2092,10 +2114,36 @@ class TestPdObjectRegistry:
 
     def test_registry_has_expected_entries(self):
         assert "osc~" in PD_OBJECT_REGISTRY
-        assert "dac~" in PD_OBJECT_REGISTRY
         assert "loadbang" in PD_OBJECT_REGISTRY
         assert "send" in PD_OBJECT_REGISTRY
         assert "receive" in PD_OBJECT_REGISTRY
+
+    def test_argument_dependent_classes_are_not_in_the_fixed_table(self):
+        """Classes whose arity varies live in the rules table, not the fixed one."""
+        for name in ("dac~", "adc~", "trigger", "pack", "route", "select", "list"):
+            assert name not in PD_OBJECT_REGISTRY
+            assert name in PD_OBJECT_IO_RULES
+
+    def test_lookup_object_io(self):
+        assert lookup_object_io("osc~ 440") == (2, 1)
+        assert lookup_object_io("dac~ 1 2 3 4") == (4, 0)
+        assert lookup_object_io("route a b c") == (1, 4)
+        assert lookup_object_io("route a") == (2, 2)
+        assert lookup_object_io("list split 2") == (2, 3)
+        assert lookup_object_io("unknown-thing") == (None, None)
+        assert lookup_object_io("") == (None, None)
+
+
+class TestSubpatchInference:
+    """Inlet/outlet counts are inferred from the inner patch's inlet/outlet objects."""
+
+    def test_empty_object_text_does_not_crash_inference(self):
+        inner = Patcher()
+        inner.add("")
+        inner.add("inlet")
+        inner.add("outlet")
+        sub = Patcher().add_subpatch("s", inner)
+        assert (sub.num_inlets, sub.num_outlets) == (1, 1)
 
 
 class TestGOP:
@@ -2107,7 +2155,7 @@ class TestGOP:
         parent = Patcher()
         sp = parent.add_subpatch("controls", inner, graph_on_parent=True)
         output = str(sp)
-        assert "#X coords 0 1 1 0 85 60 1 0 0 0;" in output
+        assert "#X coords 0 1 1 0 85 60 1 0 0;" in output
         assert "#X restore" in output
 
     def test_gop_dimensions(self):
@@ -2132,7 +2180,9 @@ class TestGOP:
             hide_name=True,
         )
         output = str(sp)
-        assert "#X coords 0 1 1 0 85 60 1 1 0 0;" in output
+        # PureData has no separate hide-name field: the graph-on-parent flag
+        # itself becomes 2. The two trailing values are the viewport margins.
+        assert "#X coords 0 1 1 0 85 60 2 0 0;" in output
 
     def test_gop_default_off(self):
         inner = Patcher()
@@ -2163,7 +2213,7 @@ class TestGOP:
             gop_height=150,
         )
         output = str(sp)
-        assert "#X coords 0 1 1 0 200 150 1 0 0 0;" in output
+        assert "#X coords 0 1 1 0 200 150 1 0 0;" in output
 
     def test_gop_canvas_dimensions_in_str(self):
         inner = Patcher()
@@ -2639,6 +2689,55 @@ class TestOptimize:
         result = p.optimize()
         assert result["pass_throughs_collapsed"] == 0
 
+    def test_passthrough_collapse_of_a_chain_keeps_the_signal_path(self):
+        """Adjacent collapsible nodes must join end to end, not disconnect."""
+        p = Patcher()
+        source = p.add("osc~ 440")
+        first = p.add("bang")
+        second = p.add("bang")
+        sink = p.add("dac~")
+        p.link(source, first)
+        p.link(first, second)
+        p.link(second, sink)
+
+        result = p.optimize(collapsible_objects=frozenset({"bang"}))
+
+        assert result["pass_throughs_collapsed"] == 2
+        assert p.nodes == [source, sink]
+        assert len(p.connections) == 1
+        assert (p.connections[0].source, p.connections[0].sink) == (0, 1)
+
+    def test_passthrough_collapse_of_a_long_chain(self):
+        p = Patcher()
+        source = p.add("osc~ 440")
+        previous = source
+        for _ in range(5):
+            node = p.add("bang")
+            p.link(previous, node)
+            previous = node
+        sink = p.add("dac~")
+        p.link(previous, sink)
+
+        result = p.optimize(collapsible_objects=frozenset({"bang"}))
+
+        assert result["pass_throughs_collapsed"] == 5
+        assert p.nodes == [source, sink]
+        assert [(c.source, c.sink) for c in p.connections] == [(0, 1)]
+
+    def test_passthrough_collapse_preserves_outlet_and_inlet_indices(self):
+        p = Patcher()
+        source = p.add("osc~ 440", num_outlets=3)
+        middle = p.add("bang")
+        sink = p.add("dac~")
+        p.link(source, middle, outlet=2)
+        p.link(middle, sink, inlet=1)
+
+        p.optimize(collapsible_objects=frozenset({"bang"}))
+
+        assert len(p.connections) == 1
+        conn = p.connections[0]
+        assert (conn.outlet_index, conn.inlet_index) == (2, 1)
+
     def test_no_collapse_multi_inlet(self):
         """Obj with >1 inlet should not be collapsed."""
         p = Patcher()
@@ -2990,7 +3089,7 @@ class TestEarlyIndexValidation:
 
     def test_getitem_variable_outlets_allows_any(self):
         p = Patcher()
-        obj = p.add("trigger")
+        obj = p.add("some-external~")
         assert obj.num_outlets is None
         outlet = obj[5]
         assert outlet.index == 5

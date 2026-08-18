@@ -45,6 +45,24 @@ class CycleWarning(UserWarning):
     pass
 
 
+class PdConnectionWarning(UserWarning):
+    """Warning raised for an out-of-range connection when validation is advisory.
+
+    Issued by ``link()`` when the patch was created with ``validate_links=False``
+    -- the connection is still recorded, since the object registry's counts are
+    incomplete and PureData may well accept it.
+    """
+
+    pass
+
+
+def _fmt_coord(value: float) -> str:
+    """Format a coordinate the way PureData writes it -- integral values as integers."""
+    if isinstance(value, int) or float(value).is_integer():
+        return str(int(value))
+    return repr(float(value))
+
+
 def escape(text: str) -> str:
     """Escape special characters for PureData format."""
     save = re.sub(r"\\", r"\\\\", text)
@@ -191,6 +209,10 @@ class Obj(Node):
         Number of inlets for connection validation
     num_outlets : int, optional
         Number of outlets for connection validation
+    escaped : bool, optional
+        Set True when *text* is already in PureData's escaped form -- for
+        example text read back out of a parsed patch. The text is then stored
+        verbatim instead of being escaped a second time.
     """
 
     parameters: Dict[str, Any]
@@ -202,8 +224,14 @@ class Obj(Node):
         text: str,
         num_inlets: Optional[int] = None,
         num_outlets: Optional[int] = None,
+        *,
+        escaped: bool = False,
     ) -> None:
-        self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": escape(text)}
+        self.parameters = {
+            "x_pos": x_pos,
+            "y_pos": y_pos,
+            "text": text if escaped else escape(text),
+        }
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
 
@@ -243,6 +271,9 @@ class Msg(Node):
         Number of inlets (default: 2 -- hot inlet + cold inlet for setting contents)
     num_outlets : int, optional
         Number of outlets (default: 1)
+    escaped : bool, optional
+        Set True when *text* is already in PureData's escaped form (see
+        :class:`Obj`).
     """
 
     def __init__(
@@ -252,8 +283,14 @@ class Msg(Node):
         text: str,
         num_inlets: Optional[int] = 2,
         num_outlets: Optional[int] = 1,
+        *,
+        escaped: bool = False,
     ) -> None:
-        self.parameters = {"x_pos": x_pos, "y_pos": y_pos, "text": escape(text)}
+        self.parameters = {
+            "x_pos": x_pos,
+            "y_pos": y_pos,
+            "text": text if escaped else escape(text),
+        }
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
 
@@ -437,6 +474,9 @@ class Subpatch(Node):
         hide_name: bool = False,
         gop_width: int = 85,
         gop_height: int = 60,
+        is_graph: bool = False,
+        gop_rect: Tuple[float, float, float, float] = (0, 1, 1, 0),
+        gop_margins: Optional[Tuple[int, int]] = (0, 0),
     ) -> None:
         """Create a subpatch node.
 
@@ -469,6 +509,16 @@ class Subpatch(Node):
             Width of the graph-on-parent viewport in pixels (default: 85)
         gop_height : int
             Height of the graph-on-parent viewport in pixels (default: 60)
+        is_graph : bool
+            If True, this canvas is closed with ``#X restore <x> <y> graph;``
+            rather than ``pd <name>``. That is the form PureData uses for a
+            canvas holding an array (default: False)
+        gop_rect : tuple of float
+            The ``(x_from, y_from, x_to, y_to)`` coordinate range written on the
+            ``#X coords`` line (default: ``(0, 1, 1, 0)``)
+        gop_margins : tuple of int, optional
+            Viewport ``(x, y)`` margins. ``None`` writes the seven-value form of
+            ``#X coords``, which PureData also accepts (default: ``(0, 0)``)
         """
         self.src = src
         self.canvas_width = canvas_width
@@ -481,6 +531,9 @@ class Subpatch(Node):
             "hide_name": hide_name,
             "gop_width": gop_width,
             "gop_height": gop_height,
+            "is_graph": is_graph,
+            "gop_rect": gop_rect,
+            "gop_margins": gop_margins,
         }
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
@@ -489,15 +542,25 @@ class Subpatch(Node):
         p = self.parameters
         coords_line = ""
         if p["graph_on_parent"]:
-            hide_flag = int(p["hide_name"])
-            coords_line = (
-                f"#X coords 0 1 1 0 {p['gop_width']} {p['gop_height']} 1 {hide_flag} 0 0;\n"
-            )
+            # PureData encodes "hide object name and arguments" in the
+            # graph-on-parent flag itself: 1 = shown, 2 = hidden. There is no
+            # separate field, and the two values after the flag are the
+            # viewport margins.
+            gop_flag = 2 if p["hide_name"] else 1
+            rect = " ".join(_fmt_coord(v) for v in p.get("gop_rect", (0, 1, 1, 0)))
+            margins = p.get("gop_margins", (0, 0))
+            tail = "" if margins is None else f" {margins[0]} {margins[1]}"
+            coords_line = f"#X coords {rect} {p['gop_width']} {p['gop_height']} {gop_flag}{tail};\n"
+        restore = (
+            f"#X restore {p['x_pos']} {p['y_pos']} graph;\n"
+            if p.get("is_graph")
+            else f"#X restore {p['x_pos']} {p['y_pos']} pd {p['name']};\n"
+        )
         return (
             f"#N canvas 0 0 {self.canvas_width} {self.canvas_height} (subpatch) 0;\n"
             f"{self.src._subpatch_str()}"
             f"{coords_line}"
-            f"#X restore {p['x_pos']} {p['y_pos']} pd {p['name']};\n"
+            f"{restore}"
         )
 
     def __repr__(self) -> str:
@@ -544,8 +607,10 @@ class Abstraction(Obj):
         num_inlets: Optional[int] = None,
         num_outlets: Optional[int] = None,
         source_path: Optional[str] = None,
+        *,
+        escaped: bool = False,
     ) -> None:
-        super().__init__(x_pos, y_pos, text, num_inlets, num_outlets)
+        super().__init__(x_pos, y_pos, text, num_inlets, num_outlets, escaped=escaped)
         self._source_path = source_path
 
     @property
@@ -638,6 +703,11 @@ class Array(Node):
         return f"Array({p['name']!r}, {p['length']})"
 
 
+# An IEM GUI colour is either a legacy packed negative integer (PureData < 0.47)
+# or a hex string such as ``#fcfcfc`` (PureData >= 0.47). Both are accepted and
+# written out unchanged.
+IemColor = Union[int, str]
+
 # IEM GUI default colors (PureData standard)
 IEM_BG_COLOR = -262144  # Gray background
 IEM_FG_COLOR = -1  # White foreground
@@ -684,9 +754,9 @@ class Bang(Node):
         label_y: int = 7,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
     ) -> None:
         self.parameters = {
             "x_pos": x_pos,
@@ -759,9 +829,9 @@ class Toggle(Node):
         label_y: int = 7,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: int = 0,
         default_value: int = 1,
     ) -> None:
@@ -881,9 +951,9 @@ class NumberBox(Node):
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: float = 0,
         log_height: int = 256,
     ) -> None:
@@ -955,9 +1025,9 @@ class VSlider(Node):
         label_y: int = -9,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: float = 0,
         steady: int = 1,
     ) -> None:
@@ -1026,9 +1096,9 @@ class HSlider(Node):
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: float = 0,
         steady: int = 1,
     ) -> None:
@@ -1098,9 +1168,9 @@ class VRadio(Node):
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: int = 0,
     ) -> None:
         self.parameters = {
@@ -1163,9 +1233,9 @@ class HRadio(Node):
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: int = 0,
     ) -> None:
         self.parameters = {
@@ -1231,8 +1301,8 @@ class Canvas(Node):
         label_y: int = 12,
         font: int = 0,
         font_size: int = 14,
-        bg_color: int = -233017,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = -233017,
+        label_color: IemColor = IEM_LABEL_COLOR,
     ) -> None:
         self.parameters = {
             "x_pos": x_pos,
@@ -1290,8 +1360,8 @@ class VU(Node):
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         scale: int = 1,
     ) -> None:
         self.parameters = {
@@ -1331,12 +1401,18 @@ class VU(Node):
 
 
 # Pd object registry: maps class names to (num_inlets, num_outlets).
-# None means variable (depends on arguments).
+# None means unknown -- connection validation is skipped for that end.
+#
+# The counts below were measured against Pd 0.55 by generating probe patches
+# and reading back which "connection failed" errors Pd reported, rather than
+# transcribed from memory.  Classes whose arity depends on creation arguments
+# (dac~, trigger, pack, route, ...) are not expressible as a fixed pair; those
+# live in PD_OBJECT_IO_RULES below and are resolved by lookup_object_io().
 PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     # Audio oscillators/sources
     "osc~": (2, 1),
     "phasor~": (2, 1),
-    "noise~": (0, 1),
+    "noise~": (1, 1),
     "tabosc4~": (2, 1),
     # Audio math
     "+~": (2, 1),
@@ -1353,10 +1429,8 @@ PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     "bp~": (3, 1),
     "vcf~": (3, 2),
     # Audio I/O
-    "dac~": (2, 0),
-    "adc~": (0, 2),
-    "line~": (1, 1),
-    "vline~": (1, 1),
+    "line~": (2, 1),
+    "vline~": (3, 1),
     "env~": (1, 1),
     "threshold~": (2, 2),
     # Audio delay
@@ -1366,10 +1440,10 @@ PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     "vd~": (1, 1),
     # Audio tables
     "tabread~": (1, 1),
-    "tabread4~": (1, 1),
-    "tabwrite~": (2, 0),
+    "tabread4~": (2, 1),
+    "tabwrite~": (1, 0),
     "tabsend~": (1, 0),
-    "tabreceive~": (0, 1),
+    "tabreceive~": (1, 1),
     # Control math
     "+": (2, 1),
     "-": (2, 1),
@@ -1393,13 +1467,6 @@ PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     "&&": (2, 1),
     "||": (2, 1),
     # Control routing
-    "trigger": (1, None),
-    "t": (1, None),
-    "pack": (None, 1),
-    "unpack": (1, None),
-    "route": (1, None),
-    "select": (1, None),
-    "sel": (1, None),
     "spigot": (2, 1),
     "swap": (2, 2),
     "moses": (2, 2),
@@ -1408,14 +1475,13 @@ PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     "metro": (2, 1),
     "timer": (2, 1),
     "pipe": (None, None),
-    "line": (2, 1),
+    "line": (3, 1),
     # Control data
     "float": (2, 1),
     "f": (2, 1),
     "int": (2, 1),
     "i": (2, 1),
     "symbol": (2, 1),
-    "list": (None, 1),
     "value": (1, 1),
     "v": (1, 1),
     # Control I/O
@@ -1424,18 +1490,18 @@ PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     "receive": (0, 1),
     "r": (0, 1),
     "throw~": (1, 0),
-    "catch~": (0, 1),
+    "catch~": (1, 1),
     "send~": (1, 0),
     "s~": (1, 0),
-    "receive~": (0, 1),
-    "r~": (0, 1),
+    "receive~": (1, 1),
+    "r~": (1, 1),
     # Misc control
     "bang": (1, 1),
     "loadbang": (0, 1),
     "print": (1, 0),
     "inlet": (0, 1),
     "outlet": (1, 0),
-    "inlet~": (0, 1),
+    "inlet~": (0, 2),
     "outlet~": (1, 0),
     "change": (1, 1),
     "stripnote": (2, 2),
@@ -1450,8 +1516,102 @@ PD_OBJECT_REGISTRY: Dict[str, Tuple[Optional[int], Optional[int]]] = {
     "bendin": (0, 2),
     "bendout": (2, 0),
     "midiin": (0, 2),
-    "midiout": (1, 0),
+    "midiout": (2, 0),
 }
+
+
+IoRule = Callable[[Tuple[str, ...]], Tuple[Optional[int], Optional[int]]]
+
+
+def _io_dac(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[dac~] takes one inlet per named channel, or two when unnamed."""
+    return (len(args) or 2, 0)
+
+
+def _io_adc(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[adc~] takes one outlet per named channel, or two when unnamed."""
+    return (1, len(args) or 2)
+
+
+def _io_trigger(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[trigger]/[t] has one outlet per type argument (two when bare)."""
+    return (1, len(args) or 2)
+
+
+def _io_pack(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[pack] has one inlet per element (two when bare)."""
+    return (len(args) or 2, 1)
+
+
+def _io_unpack(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[unpack] has one outlet per element (two when bare)."""
+    return (1, len(args) or 2)
+
+
+def _io_select(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[select]/[route] -- a single test value keeps the right inlet."""
+    if len(args) <= 1:
+        return (2, 2)
+    return (1, len(args) + 1)
+
+
+_LIST_METHOD_IO: Dict[str, Tuple[Optional[int], Optional[int]]] = {
+    "append": (2, 1),
+    "prepend": (2, 1),
+    "split": (2, 3),
+    "trim": (1, 1),
+    "length": (1, 1),
+    "store": (2, 2),
+    "fromsymbol": (1, 1),
+    "tosymbol": (1, 1),
+}
+
+
+def _io_list(args: Tuple[str, ...]) -> Tuple[Optional[int], Optional[int]]:
+    """[list <method>] -- arity depends on the method selector."""
+    method = args[0] if args else "append"
+    return _LIST_METHOD_IO.get(method, (None, None))
+
+
+# Classes whose inlet/outlet counts depend on their creation arguments.
+PD_OBJECT_IO_RULES: Dict[str, IoRule] = {
+    "dac~": _io_dac,
+    "adc~": _io_adc,
+    "trigger": _io_trigger,
+    "t": _io_trigger,
+    "pack": _io_pack,
+    "unpack": _io_unpack,
+    "select": _io_select,
+    "sel": _io_select,
+    "route": _io_select,
+    "list": _io_list,
+}
+
+
+def lookup_object_io(text: str) -> Tuple[Optional[int], Optional[int]]:
+    """Resolve the inlet/outlet counts for an object from its full text.
+
+    Parameters
+    ----------
+    text : str
+        Object text including creation arguments, e.g. ``'dac~ 1 2 3 4'``.
+
+    Returns
+    -------
+    tuple of (int or None, int or None)
+        ``(num_inlets, num_outlets)``. ``None`` for either element means the
+        count is unknown and connection validation should be skipped for that
+        end -- which is the case for every object not in the registry, including
+        all externals and abstractions.
+    """
+    parts = text.split()
+    if not parts:
+        return (None, None)
+    class_name = parts[0]
+    rule = PD_OBJECT_IO_RULES.get(class_name)
+    if rule is not None:
+        return rule(tuple(parts[1:]))
+    return PD_OBJECT_REGISTRY.get(class_name, (None, None))
 
 
 # Types that are never removed by optimize() -- they either have side effects
@@ -1478,6 +1638,48 @@ _PROTECTED_TYPES = (
 
 # Default/inactive values for send/receive parameters across Pd object types.
 _SEND_RECEIVE_INACTIVE = frozenset({"empty", "-", ""})
+
+
+def _resolve_bypasses(
+    bypass: Dict[int, Tuple["Connection", "Connection"]],
+) -> List["Connection"]:
+    """Turn per-node bypass pairs into direct predecessor-to-successor connections.
+
+    *bypass* maps the index of each node being collapsed to its single incoming
+    and single outgoing connection. A chain of adjacent collapsed nodes
+    (``a -> p1 -> p2 -> b``) must yield one connection ``a -> b``, so each end is
+    walked through any further collapsed nodes until it reaches a surviving one.
+
+    Parameters
+    ----------
+    bypass : dict
+        Node index -> (incoming connection, outgoing connection).
+
+    Returns
+    -------
+    list of Connection
+        One connection per collapsed chain. Chains that form a closed cycle of
+        collapsed nodes yield nothing, since no surviving endpoint exists.
+    """
+    results: List[Connection] = []
+    for idx, (inc, out) in bypass.items():
+        # Only start from the head of a chain: if this node's predecessor is
+        # itself being collapsed, the head will emit the connection instead.
+        if inc.source in bypass:
+            continue
+
+        # Walk forward through collapsed nodes to the first survivor.
+        sink, inlet_index = out.sink, out.inlet_index
+        seen: Set[int] = {idx}
+        while sink in bypass and sink not in seen:
+            seen.add(sink)
+            next_out = bypass[sink][1]
+            sink, inlet_index = next_out.sink, next_out.inlet_index
+        if sink in bypass:
+            continue  # cycle of collapsed nodes -- nothing survives to connect
+
+        results.append(Connection(inc.source, inc.outlet_index, sink, inlet_index))
+    return results
 
 
 def _has_active_send_receive(node: Node) -> bool:
@@ -1818,9 +2020,14 @@ class Patcher:
     nodes: List[Node]
     connections: List[Connection]
     layout: LayoutManager
+    validate_links: bool
 
     def __init__(
-        self, filename: Optional[str] = None, layout: Optional[LayoutManager] = None
+        self,
+        filename: Optional[str] = None,
+        layout: Optional[LayoutManager] = None,
+        *,
+        validate_links: bool = True,
     ) -> None:
         """Initialize a new patch.
 
@@ -1830,11 +2037,19 @@ class Patcher:
             Default filename for save(). Can be overridden in save().
         layout : LayoutManager, optional
             Custom layout manager. If None, creates a default LayoutManager.
+        validate_links : bool, optional
+            When True (default), ``link()`` raises ``PdConnectionError`` for an
+            outlet or inlet index outside the node's known range. Set False to
+            warn instead. Reading an existing patch uses False, because the
+            object registry cannot know the arity of externals, abstractions,
+            or objects it has no entry for, and a patch that PureData accepts
+            must still be representable.
         """
         self.filename = filename
         self.nodes = []
         self.connections = []
         self.layout = layout if layout is not None else LayoutManager()
+        self.validate_links = validate_links
 
     @property
     def row_head(self) -> Optional[Node]:
@@ -1877,6 +2092,7 @@ class Patcher:
         y_pos: int = -1,
         num_inlets: Optional[int] = None,
         num_outlets: Optional[int] = None,
+        escaped: bool = False,
     ) -> Obj:
         """Add an object to the patch.
 
@@ -1909,6 +2125,10 @@ class Patcher:
         num_outlets : int, optional
             Number of outlets for connection validation.
 
+        escaped : bool, optional
+            Set True when *text* is already in PureData's escaped form, e.g.
+            text taken from a parsed patch. Prevents double-escaping.
+
         Returns
         -------
         Obj
@@ -1931,19 +2151,18 @@ class Patcher:
                     num_inlets = inferred_in
                 if num_outlets is None:
                     num_outlets = inferred_out
-            node: Obj = Abstraction(x_pos, y_pos, text, num_inlets, num_outlets, source_path)
+            node: Obj = Abstraction(
+                x_pos, y_pos, text, num_inlets, num_outlets, source_path, escaped=escaped
+            )
         else:
-            node = Obj(x_pos, y_pos, text, num_inlets, num_outlets)
+            node = Obj(x_pos, y_pos, text, num_inlets, num_outlets, escaped=escaped)
             # Auto-fill inlet/outlet counts from registry if not explicitly given
             if num_inlets is None or num_outlets is None:
-                text_parts = text.split()
-                class_name = text_parts[0] if text_parts else ""
-                if class_name in PD_OBJECT_REGISTRY:
-                    reg_in, reg_out = PD_OBJECT_REGISTRY[class_name]
-                    if num_inlets is None:
-                        node.num_inlets = reg_in
-                    if num_outlets is None:
-                        node.num_outlets = reg_out
+                reg_in, reg_out = lookup_object_io(text)
+                if num_inlets is None:
+                    node.num_inlets = reg_in
+                if num_outlets is None:
+                    node.num_outlets = reg_out
 
         self.nodes.append(node)
         pos_update(node)
@@ -1957,6 +2176,7 @@ class Patcher:
         new_col: float = 0,
         x_pos: int = -1,
         y_pos: int = -1,
+        escaped: bool = False,
     ) -> Msg:
         """Add a message box to the patch.
 
@@ -1964,6 +2184,9 @@ class Patcher:
         ----------
         text : str
             The message content
+        escaped : bool, optional
+            Set True when *text* is already in PureData's escaped form, e.g.
+            text taken from a parsed patch. Prevents double-escaping.
 
         Returns
         -------
@@ -1971,7 +2194,7 @@ class Patcher:
             The created message box
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
-        node = Msg(x_pos, y_pos, text)
+        node = Msg(x_pos, y_pos, text, escaped=escaped)
         self.nodes.append(node)
         pos_update(node)
         return node
@@ -2036,6 +2259,9 @@ class Patcher:
         hide_name: bool = False,
         gop_width: int = 85,
         gop_height: int = 60,
+        is_graph: bool = False,
+        gop_rect: Tuple[float, float, float, float] = (0, 1, 1, 0),
+        gop_margins: Optional[Tuple[int, int]] = (0, 0),
     ) -> Subpatch:
         """Add a subpatch to the patch.
 
@@ -2076,6 +2302,10 @@ class Patcher:
         gop_height : int, optional
             Height of the graph-on-parent viewport (default: 60)
 
+        is_graph : bool, optional
+            If True, close the canvas with ``#X restore <x> <y> graph;`` --
+            the form PureData uses for an array canvas (default: False)
+
         Returns
         -------
         Subpatch
@@ -2105,13 +2335,15 @@ class Patcher:
             num_inlets = sum(
                 1
                 for n in src.nodes
-                if isinstance(n, Obj) and n.parameters["text"].split()[0] in ("inlet", "inlet~")
+                if isinstance(n, Obj)
+                and n.parameters["text"].split()[:1] in (["inlet"], ["inlet~"])
             )
         if num_outlets is None:
             num_outlets = sum(
                 1
                 for n in src.nodes
-                if isinstance(n, Obj) and n.parameters["text"].split()[0] in ("outlet", "outlet~")
+                if isinstance(n, Obj)
+                and n.parameters["text"].split()[:1] in (["outlet"], ["outlet~"])
             )
 
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
@@ -2128,6 +2360,9 @@ class Patcher:
             hide_name=hide_name,
             gop_width=gop_width,
             gop_height=gop_height,
+            is_graph=is_graph,
+            gop_rect=gop_rect,
+            gop_margins=gop_margins,
         )
         self.nodes.append(node)
         pos_update(node)
@@ -2232,9 +2467,9 @@ class Patcher:
         label_y: int = 7,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
     ) -> Bang:
         """Create a bang button and add it to the patch.
 
@@ -2299,9 +2534,9 @@ class Patcher:
         label_y: int = 7,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: int = 0,
         default_value: int = 1,
     ) -> Toggle:
@@ -2409,9 +2644,9 @@ class Patcher:
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: float = 0,
         log_height: int = 256,
     ) -> NumberBox:
@@ -2485,9 +2720,9 @@ class Patcher:
         label_y: int = -9,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: float = 0,
         steady: int = 1,
     ) -> VSlider:
@@ -2559,9 +2794,9 @@ class Patcher:
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: float = 0,
         steady: int = 1,
     ) -> HSlider:
@@ -2631,9 +2866,9 @@ class Patcher:
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: int = 0,
     ) -> VRadio:
         """Create vertical radio buttons and add to the patch.
@@ -2693,9 +2928,9 @@ class Patcher:
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        fg_color: int = IEM_FG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        fg_color: IemColor = IEM_FG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         init_value: int = 0,
     ) -> HRadio:
         """Create horizontal radio buttons and add to the patch.
@@ -2754,8 +2989,8 @@ class Patcher:
         label_y: int = 12,
         font: int = 0,
         font_size: int = 14,
-        bg_color: int = -233017,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = -233017,
+        label_color: IemColor = IEM_LABEL_COLOR,
     ) -> Canvas:
         """Create a canvas/background rectangle and add to the patch.
 
@@ -2817,8 +3052,8 @@ class Patcher:
         label_y: int = -8,
         font: int = 0,
         font_size: int = 10,
-        bg_color: int = IEM_BG_COLOR,
-        label_color: int = IEM_LABEL_COLOR,
+        bg_color: IemColor = IEM_BG_COLOR,
+        label_color: IemColor = IEM_LABEL_COLOR,
         scale: int = 1,
     ) -> VU:
         """Create a VU meter and add to the patch.
@@ -2911,17 +3146,23 @@ class Patcher:
             raise NodeNotFoundError(f"Sink node {sink!r} not found in patch")
 
         if source.num_outlets is not None and outlet >= source.num_outlets:
-            raise PdConnectionError(
+            self._reject_link(
                 f"Outlet index {outlet} out of range for {source!r} "
                 f"(has {source.num_outlets} outlet{'s' if source.num_outlets != 1 else ''})"
             )
         if sink.num_inlets is not None and inlet >= sink.num_inlets:
-            raise PdConnectionError(
+            self._reject_link(
                 f"Inlet index {inlet} out of range for {sink!r} "
                 f"(has {sink.num_inlets} inlet{'s' if sink.num_inlets != 1 else ''})"
             )
 
         self.connections.append(Connection(source_index, outlet, sink_index, inlet))
+
+    def _reject_link(self, message: str) -> None:
+        """Raise or warn about an out-of-range connection, per ``validate_links``."""
+        if self.validate_links:
+            raise PdConnectionError(message)
+        warnings.warn(message, PdConnectionWarning, stacklevel=3)
 
     # Alias for symmetry with add_* methods
     add_link = link
@@ -3474,7 +3715,12 @@ class Patcher:
                 conn_by_source.setdefault(c.source, []).append(c)
 
             conns_to_remove: Set[int] = set()  # id() of connections to remove
-            conns_to_add: List[Connection] = []
+            # Bypass edges keyed by the node they replace, resolved transitively
+            # afterwards.  Emitting them directly would break when two
+            # collapsible nodes are adjacent: the bypass for the first would
+            # point at the second, which is itself about to be removed, and the
+            # whole chain would be dropped instead of joined.
+            bypass: Dict[int, Tuple[Connection, Connection]] = {}
 
             for idx, node in enumerate(self.nodes):
                 if not isinstance(node, Obj):
@@ -3494,16 +3740,15 @@ class Patcher:
                 outgoing = conn_by_source.get(idx, [])
                 if len(incoming) != 1 or len(outgoing) != 1:
                     continue
-                # Bypass: connect predecessor directly to successor
                 inc = incoming[0]
                 out = outgoing[0]
-                conns_to_add.append(
-                    Connection(inc.source, inc.outlet_index, out.sink, out.inlet_index)
-                )
+                bypass[idx] = (inc, out)
                 conns_to_remove.add(id(inc))
                 conns_to_remove.add(id(out))
                 removal_set.add(idx)
                 stats["pass_throughs_collapsed"] += 1
+
+            conns_to_add = _resolve_bypasses(bypass)
 
             self.connections = [
                 c for c in self.connections if id(c) not in conns_to_remove

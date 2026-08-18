@@ -437,6 +437,7 @@ class HeavyPatcher(Patcher):
         y_pos: int = -1,
         num_inlets: Optional[int] = None,
         num_outlets: Optional[int] = None,
+        escaped: bool = False,
     ) -> Obj:
         """Add an object, validating hvcc compatibility first.
 
@@ -469,6 +470,7 @@ class HeavyPatcher(Patcher):
             y_pos=y_pos,
             num_inlets=num_inlets,
             num_outlets=num_outlets,
+            escaped=escaped,
         )
 
     def add_param(

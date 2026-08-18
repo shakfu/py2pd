@@ -35,9 +35,12 @@ from .api import (
     NodeNotFoundError,
     Patcher,
     PdConnectionError,
+    PdConnectionWarning,
+    lookup_object_io,
 )
 from .ast import (
     ParseError,
+    UnsupportedElementWarning,
     from_builder,
     parse,
     parse_file,
@@ -62,7 +65,11 @@ __all__ = [
     "NodeNotFoundError",
     "InvalidConnectionError",
     "CycleWarning",
+    "PdConnectionWarning",
+    "UnsupportedElementWarning",
     "ParseError",
+    # Object registry
+    "lookup_object_io",
     # Layout constants
     "ROW_HEIGHT",
     "COLUMN_WIDTH",

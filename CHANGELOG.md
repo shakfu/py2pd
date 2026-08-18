@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parser: newlines are atom separators.** PureData wraps long statements across
+  physical lines with no continuation marker, but `_tokenize()` split only on
+  spaces and tabs, folding the newline into the adjacent token. Object arguments
+  came back corrupted (`('...', 'ten\neleven', 'twelve')`) and wrapped GUI
+  objects failed their argument-count check, silently degrading to plain
+  `PdObj`. Serialization happened to stay byte-stable, which is why no test
+  caught it.
+- **Parser: `#X restore <x> <y> graph;`.** `_parse_restore()` required six tokens
+  and hardcoded `pd` in the output, so any patch containing an array or graph
+  canvas raised `ParseError` -- 126 of the 371 patches shipped with PureData
+  0.55. `PdRestore` now records the form in `kind` and round-trips both.
+- **Parser: IEM colours.** PureData >= 0.47 writes colours as `#rrggbb`, which
+  `_parse_int()` swallowed, substituting the legacy defaults. Every GUI object
+  in every modern patch lost its colours on round trip. Colours are now typed
+  `IemColor` (`int | str`) and preserved in whichever form they were read.
+- **Parser: `tgl` argument count.** The threshold was 15 but a toggle line
+  carries 14 values, so no real toggle ever parsed as `PdTgl` (239 in the
+  PureData 0.55 corpus).
+- **Parser: unmodelled statements are preserved.** `#N struct`, `#X scalar`,
+  `#A` array data, `#X f` box widths and `#X listbox` were dropped, or -- worse --
+  rewritten as object boxes by the unknown-command fallback, producing a file
+  that loads but is wrong. They now parse to the new `PdRaw` node and serialize
+  verbatim. `PdPatch.preamble` holds statements that precede the canvas line,
+  which is where PureData writes struct templates.
+- **Parser: `#X coords` field layout.** The AST had a `hide_name` field that
+  PureData does not write, which shifted both margins by one position. Hiding
+  the object name is encoded in the graph-on-parent flag itself (`2` rather than
+  `1`). `PdCoords.hide_name` is now a derived property, the seven- and
+  nine-value forms both round-trip, and `Subpatch`'s `hide_name=True` finally
+  has an effect -- it previously wrote the flag into the x-margin slot.
+- **Parser: `#X declare -stdpath <value>`.** `-stdpath` and `-stdlib` take a
+  value; treating them as bare flags dropped it. The statement is now also kept
+  verbatim so it serializes back unchanged.
+- **Parser: atom box font size.** PureData >= 0.52 appends a per-box font size to
+  `#X floatatom` / `#X symbolatom`; it was dropped. Integral limits are also no
+  longer rewritten as floats (`0` stayed `0`, not `0.0`).
+- **`to_builder()` no longer double-escapes.** It passed already-escaped text
+  through `escape()` a second time, turning `\$1` into a literal dollar sign and
+  inserting stray backslash atoms. PureData loaded the result without complaint
+  and interpreted it wrongly. `Obj`, `Msg`, `Abstraction`, `Patcher.add()` and
+  `Patcher.add_msg()` accept `escaped=True` for text that is already in
+  PureData's form.
+- **`to_builder()` no longer rejects valid patches.** Connection validation now
+  warns rather than raising while reading, since the object registry cannot know
+  the arity of externals, abstractions, or anything absent from it. 25 of the
+  245 then-parseable PureData 0.55 patches raised `PdConnectionError`.
+- **`to_builder()` reports what it cannot represent.** Statements and connections
+  the builder has no node for now raise `UnsupportedElementWarning` instead of
+  vanishing. Statements PureData does not count as objects no longer consume a
+  connect index, which previously shifted every following connection.
+- **`optimize()` no longer deletes the signal path.** Pass-through collapse built
+  its bypass connections from stale indices, so a chain of adjacent collapsible
+  nodes (`a -> p1 -> p2 -> b`) dropped both replacement connections and left `a`
+  and `b` disconnected. Chains are now resolved transitively to a single
+  connection.
+- **`add_subpatch()`** no longer raises `IndexError` when the inner patch
+  contains an object with empty text.
+- **Licensing.** The repository shipped the GPL-3.0 text while `pyproject.toml`
+  and all three published releases declared MIT, and the built wheel contained
+  no license file at all. The GPL text was added by GitHub at repository
+  creation, not inherited: upstream puredata-compiler carries no LICENSE file
+  and declares `License :: OSI Approved :: MIT License` in its `setup.py`.
+  `LICENSE` is now the MIT text, carries a copyright notice for Dylan Burati
+  alongside one for this project -- required by MIT, since parts of `api.py`
+  (`escape`, `get_display_lines`, `get_next_position` and the node class
+  hierarchy) originate upstream -- and is included in the distribution via
+  `license-files`.
+
+### Changed
+
+- **Object arity is resolved from the full object text, not the class name.**
+  `PD_OBJECT_REGISTRY` could not express `[dac~ 1 2 3 4]`, `[trigger b f s]`,
+  `[route a b c]` or `[list split]`, whose inlet and outlet counts depend on
+  their creation arguments. Those classes moved to `PD_OBJECT_IO_RULES`, and the
+  new `lookup_object_io(text)` resolves either. Fourteen entries in the fixed
+  table were also wrong; all counts were re-measured against PureData 0.55 by
+  generating probe patches and reading back which connections it rejected.
+- `Patcher(validate_links=False)` downgrades `link()`'s index check from
+  `PdConnectionError` to the new `PdConnectionWarning`.
+- `add_subpatch(is_graph=True)` writes `#X restore <x> <y> graph;`, and
+  `gop_rect` / `gop_margins` control the values on the `#X coords` line.
+- IEM colour parameters across the builder GUI types accept hex strings as well
+  as packed integers.
+
+### Added
+
+- `tests/examples/pd_authored.pd` -- a fixture written by PureData 0.55 itself,
+  covering wrapped statements, hex colours, a graph canvas, a graph-on-parent
+  subpatch with a hidden name, a scalar and a struct template.
+- `tests/test_roundtrip.py` -- byte-level round-trip tests against that fixture,
+  with one test per defect above.
+- `tests/test_corpus.py` -- runs the parser over a real PureData installation's
+  patches when one is present, skipped otherwise. Set `PD_DOC_DIR` to choose a
+  corpus.
+
+
 ## [0.1.3]
 
 ### Fixed

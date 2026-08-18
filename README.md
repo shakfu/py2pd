@@ -7,12 +7,12 @@ py2pd is a fork and extensive rewrite of Dylan Burati's [puredata-compiler](http
 ## Features
 
 - **Builder API** -- imperative patch construction with `add()`, `link()`, and automatic layout
-- **AST API** -- lossless round-trip parsing of `.pd` files via frozen dataclasses
+- **AST API** -- round-trip parsing of `.pd` files via frozen dataclasses, preserving statements it does not model (data structures, scalars, array data) verbatim
 - **Bridging** -- convert freely between Builder and AST with `from_builder()` / `to_builder()`
 - **All GUI types** -- Bang, Toggle, NumberBox, Symbol, HSlider, VSlider, HRadio, VRadio, Canvas, VU
 - **Subpatches** -- nested patches with auto-inferred inlet/outlet counts and graph-on-parent support
 - **Abstractions** -- reference external `.pd` files with auto-inferred I/O
-- **Connection validation** -- eager index checking against a registry of ~80 common Pd objects
+- **Connection validation** -- index checking against a registry of common Pd objects, including those whose inlet and outlet counts depend on their creation arguments
 - **Patch optimization** -- deduplicate connections, collapse pass-throughs, remove unused nodes
 - **SVG export** -- visualize patches as SVG
 - **Externals discovery** -- platform-aware scanning for `.pd` abstractions and binary externals
@@ -82,7 +82,21 @@ p.link(gain, dac, inlet=1)     # right channel (stereo)
 p.link(trigger, pack, outlet=1, inlet=2)  # specific ports
 ```
 
-Outlet and inlet indices are validated eagerly when the node's I/O counts are known (from `PD_OBJECT_REGISTRY` or explicit `num_inlets`/`num_outlets`). Out-of-range indices raise `PdConnectionError` at `link()` time rather than silently creating invalid connections. Objects with unknown I/O counts (e.g., `trigger`, `pack`, `route`) skip validation.
+Outlet and inlet indices are validated eagerly when the node's I/O counts are known. Out-of-range indices raise `PdConnectionError` at `link()` time rather than silently creating invalid connections. Objects with unknown counts -- externals, abstractions, and anything absent from the registry -- skip validation.
+
+Counts come from `lookup_object_io()`, which resolves the object's full text rather than just its class name, because much of Pd's arity depends on creation arguments:
+
+```python
+from py2pd import lookup_object_io
+
+lookup_object_io('dac~')            # (2, 0)
+lookup_object_io('dac~ 1 2 3 4')    # (4, 0) -- one inlet per named channel
+lookup_object_io('trigger b f s')   # (1, 3)
+lookup_object_io('route a b c')     # (1, 4)
+lookup_object_io('some-external')   # (None, None) -- unknown, not validated
+```
+
+Pass `validate_links=False` to `Patcher()` to downgrade the check to a `PdConnectionWarning`. Reading an existing patch does this automatically, since the registry cannot know the arity of every object a patch may contain.
 
 ### Subpatches
 
@@ -209,7 +223,7 @@ result = p.optimize()
 The three passes run in order:
 
 1. **Deduplicate connections** -- removes exact-duplicate patch cords.
-2. **Pass-through collapse** -- bypasses single-in/single-out nodes (opt-in via `collapsible_objects`).
+2. **Pass-through collapse** -- bypasses single-in/single-out nodes (opt-in via `collapsible_objects`). A run of adjacent collapsible nodes is joined end to end into a single connection.
 3. **Unused element removal** -- removes disconnected `Obj` nodes. GUI elements, comments, subpatches, abstractions, arrays, messages, and floats are never removed. Nodes with active send/receive parameters are preserved.
 
 Use `recursive=True` to optimize inner subpatches as well:
@@ -264,7 +278,7 @@ ast = from_builder(patch)
 |----------|-----------------|
 | Creating patches from scratch | Builder |
 | Modifying existing patches | Builder (via `to_builder()`) |
-| Lossless round-trip of complex patches | AST |
+| Round-trip of complex patches | AST |
 | Building analysis/refactoring tools | AST |
 | Batch search/replace across .pd files | AST |
 
@@ -371,7 +385,7 @@ from py2pd.integrations.hvcc import validate_for_hvcc
 
 result = validate_for_hvcc(p)
 if not result.ok:
-    print("Unsupported objects:", result.unsupported)
+    print("Errors:", result.errors)
 ```
 
 **Compile to C/C++** (requires `hvcc` installed):
@@ -379,7 +393,7 @@ if not result.ok:
 ```python
 from py2pd.integrations.hvcc import compile_hvcc
 
-result = compile_hvcc(p, name='MySynth', out_dir='build/')
+result = compile_hvcc(p, name='MySynth', output_dir='build/')
 if not result.ok:
     print(result.stderr)
 ```
@@ -389,10 +403,13 @@ if not result.ok:
 ```python
 from py2pd import (
     PdConnectionError,      # Invalid connection arguments (including out-of-range indices)
+    PdConnectionWarning,    # Out-of-range index when validate_links=False
     NodeNotFoundError,      # Node not in patch
     InvalidConnectionError, # Bad inlet/outlet index (from validate_connections)
     CycleWarning,           # Feedback loop detected
 )
 ```
 
-`PdConnectionError` is raised eagerly by `link()` when outlet or inlet indices exceed the node's known I/O counts. `Node.__getitem__` (e.g., `osc[2]`) raises `ValueError` for out-of-range outlet indices. Both checks are skipped for objects with unknown counts (`num_outlets=None` / `num_inlets=None`).
+`PdConnectionError` is raised eagerly by `link()` when outlet or inlet indices exceed the node's known I/O counts. `Node.__getitem__` (e.g., `osc[2]`) raises `ValueError` for out-of-range outlet indices. Both checks are skipped for objects with unknown counts (`num_outlets=None` / `num_inlets=None`), and `link()` warns instead of raising when the patch was created with `validate_links=False`.
+
+`to_builder()` issues `UnsupportedElementWarning` (from `py2pd.ast`) for any statement the Builder cannot represent, rather than dropping patch content silently.

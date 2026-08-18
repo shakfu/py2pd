@@ -17,9 +17,27 @@ Example usage:
 
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+import warnings
 
 if TYPE_CHECKING:
     from . import api
+
+
+# An IEM GUI colour is either a legacy packed negative integer (Pd < 0.47)
+# or a hex string such as ``#fcfcfc`` (Pd >= 0.47).  Both forms are preserved
+# verbatim so that a parsed patch serialises back to the form it was read in.
+IemColor = Union[int, str]
+
+
+def _fmt_num(value: float) -> str:
+    """Format a number the way Pd writes it -- integral values without a decimal point."""
+    if isinstance(value, bool):
+        return str(int(value))
+    if isinstance(value, int):
+        return str(value)
+    if value == int(value) and abs(value) < 1e16:
+        return str(int(value))
+    return repr(value)
 
 
 # AST Node Types
@@ -96,12 +114,14 @@ class PdFloatAtom:
     label: str = "-"
     receive: str = "-"
     send: str = "-"
+    font_size: Optional[int] = None
 
     def __str__(self) -> str:
+        tail = "" if self.font_size is None else f" {self.font_size}"
         return (
             f"#X floatatom {self.position} {self.width} "
-            f"{self.lower_limit} {self.upper_limit} {self.label_pos} "
-            f"{self.label} {self.receive} {self.send};"
+            f"{_fmt_num(self.lower_limit)} {_fmt_num(self.upper_limit)} {self.label_pos} "
+            f"{self.label} {self.receive} {self.send}{tail};"
         )
 
 
@@ -117,12 +137,14 @@ class PdSymbolAtom:
     label: str = "-"
     receive: str = "-"
     send: str = "-"
+    font_size: Optional[int] = None
 
     def __str__(self) -> str:
+        tail = "" if self.font_size is None else f" {self.font_size}"
         return (
             f"#X symbolatom {self.position} {self.width} "
-            f"{self.lower_limit} {self.upper_limit} {self.label_pos} "
-            f"{self.label} {self.receive} {self.send};"
+            f"{_fmt_num(self.lower_limit)} {_fmt_num(self.upper_limit)} {self.label_pos} "
+            f"{self.label} {self.receive} {self.send}{tail};"
         )
 
 
@@ -165,25 +187,78 @@ class PdConnect:
 
 @dataclass(frozen=True)
 class PdCoords:
-    """Graph-on-parent coordinates (#X coords)."""
+    """Graph-on-parent coordinates (``#X coords``).
 
-    x_from: float
-    y_from: float
-    x_to: float
-    y_to: float
-    width: int
-    height: int
+    Pd writes this statement with either seven or nine values::
+
+        #X coords <x_from> <y_from> <x_to> <y_to> <width> <height> <gop>;
+        #X coords <x_from> <y_from> <x_to> <y_to> <width> <height> <gop> <xm> <ym>;
+
+    There is no separate "hide name" field: hiding the object name and arguments
+    is encoded as ``graph_on_parent == 2``.  Use the :attr:`hide_name` property
+    rather than reading the flag directly.
+
+    Attributes
+    ----------
+    graph_on_parent : int
+        0 = not a graph-on-parent canvas, 1 = graph-on-parent,
+        2 = graph-on-parent with the object name and arguments hidden.
+    x_margin, y_margin : int or None
+        Viewport margins.  ``None`` means the source used the seven-value form;
+        the serializer then writes seven values back.
+    """
+
+    x_from: float = 0
+    y_from: float = 1
+    x_to: float = 1
+    y_to: float = 0
+    width: int = 85
+    height: int = 60
     graph_on_parent: int = 1
-    hide_name: int = 0
-    x_margin: int = 0
-    y_margin: int = 0
+    x_margin: Optional[int] = None
+    y_margin: Optional[int] = None
+
+    @property
+    def hide_name(self) -> bool:
+        """True if the object name and arguments are hidden (``graph_on_parent == 2``)."""
+        return self.graph_on_parent >= 2
 
     def __str__(self) -> str:
-        return (
-            f"#X coords {self.x_from} {self.y_from} {self.x_to} {self.y_to} "
-            f"{self.width} {self.height} {self.graph_on_parent} "
-            f"{self.hide_name} {self.x_margin} {self.y_margin};"
+        base = (
+            f"#X coords {_fmt_num(self.x_from)} {_fmt_num(self.y_from)} "
+            f"{_fmt_num(self.x_to)} {_fmt_num(self.y_to)} "
+            f"{self.width} {self.height} {self.graph_on_parent}"
         )
+        if self.x_margin is None and self.y_margin is None:
+            return base + ";"
+        return f"{base} {self.x_margin or 0} {self.y_margin or 0};"
+
+
+@dataclass(frozen=True)
+class PdRaw:
+    """A statement py2pd has no dedicated node for, preserved verbatim.
+
+    Used for directives outside the modelled subset -- ``#N struct``,
+    ``#X scalar``, ``#X listbox``, ``#A`` array data, ``#X f`` box widths and
+    anything else unrecognised.  The original text is stored unchanged so that
+    parsing and re-serializing a patch does not discard or rewrite it.
+
+    Attributes
+    ----------
+    text : str
+        The statement exactly as it appeared, without its trailing semicolon.
+    is_object : bool
+        Whether Pd counts this statement as an object on the canvas.  This
+        matters because ``#X connect`` indices refer to object position:
+        ``#X scalar`` and ``#X listbox`` occupy an index, ``#A`` and
+        ``#X f`` do not.
+    """
+
+    text: str
+    is_object: bool = False
+
+    def __str__(self) -> str:
+        return f"{self.text};"
 
 
 @dataclass(frozen=True)
@@ -194,8 +269,11 @@ class PdDeclare:
     libs: Tuple[str, ...] = field(default_factory=tuple)
     stdpath: bool = False
     stdlib: bool = False
+    args: Optional[Tuple[str, ...]] = None
 
     def __str__(self) -> str:
+        if self.args is not None:
+            return " ".join(("#X", "declare") + self.args) + ";"
         parts = ["#X declare"]
         for p in self.paths:
             parts.append(f"-path {p}")
@@ -210,13 +288,26 @@ class PdDeclare:
 
 @dataclass(frozen=True)
 class PdRestore:
-    """Subpatch restore command (#X restore)."""
+    """Subpatch restore command (``#X restore``).
+
+    Pd closes a nested canvas with either ``#X restore <x> <y> pd <name>;`` for a
+    subpatch or ``#X restore <x> <y> graph;`` for an array/graph canvas.  *kind*
+    records which form was used so both serialize back unchanged.
+    """
 
     position: Position
-    name: str
+    name: str = ""
+    kind: str = "pd"
+
+    @property
+    def is_graph(self) -> bool:
+        """True if this closes an array/graph canvas rather than a subpatch."""
+        return self.kind == "graph"
 
     def __str__(self) -> str:
-        return f"#X restore {self.position} pd {self.name};"
+        if not self.name:
+            return f"#X restore {self.position} {self.kind};"
+        return f"#X restore {self.position} {self.kind} {self.name};"
 
 
 # GUI objects
@@ -236,9 +327,9 @@ class PdBng:
     label_y: int = 7
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
 
     def __str__(self) -> str:
         return (
@@ -263,9 +354,9 @@ class PdTgl:
     label_y: int = 7
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
     init_value: int = 0
     default_value: int = 0
 
@@ -297,20 +388,20 @@ class PdNbx:
     label_y: int = -8
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
     init_value: float = 0.0
     log_height: int = 256
 
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} nbx {self.width} {self.height} "
-            f"{self.min_val} {self.max_val} {self.log_flag} {self.init} "
+            f"{_fmt_num(self.min_val)} {_fmt_num(self.max_val)} {self.log_flag} {self.init} "
             f"{self.send} {self.receive} {self.label} "
             f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
             f"{self.bg_color} {self.fg_color} {self.label_color} "
-            f"{self.init_value} {self.log_height};"
+            f"{_fmt_num(self.init_value)} {self.log_height};"
         )
 
 
@@ -332,20 +423,20 @@ class PdVsl:
     label_y: int = -9
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
     init_value: float = 0.0
     steady: int = 1
 
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} vsl {self.width} {self.height} "
-            f"{self.min_val} {self.max_val} {self.log_flag} {self.init} "
+            f"{_fmt_num(self.min_val)} {_fmt_num(self.max_val)} {self.log_flag} {self.init} "
             f"{self.send} {self.receive} {self.label} "
             f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
             f"{self.bg_color} {self.fg_color} {self.label_color} "
-            f"{self.init_value} {self.steady};"
+            f"{_fmt_num(self.init_value)} {self.steady};"
         )
 
 
@@ -367,20 +458,20 @@ class PdHsl:
     label_y: int = -8
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
     init_value: float = 0.0
     steady: int = 1
 
     def __str__(self) -> str:
         return (
             f"#X obj {self.position} hsl {self.width} {self.height} "
-            f"{self.min_val} {self.max_val} {self.log_flag} {self.init} "
+            f"{_fmt_num(self.min_val)} {_fmt_num(self.max_val)} {self.log_flag} {self.init} "
             f"{self.send} {self.receive} {self.label} "
             f"{self.label_x} {self.label_y} {self.font} {self.font_size} "
             f"{self.bg_color} {self.fg_color} {self.label_color} "
-            f"{self.init_value} {self.steady};"
+            f"{_fmt_num(self.init_value)} {self.steady};"
         )
 
 
@@ -400,9 +491,9 @@ class PdVradio:
     label_y: int = -8
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
     init_value: int = 0
 
     def __str__(self) -> str:
@@ -430,9 +521,9 @@ class PdHradio:
     label_y: int = -8
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    fg_color: int = -1
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    fg_color: IemColor = -1
+    label_color: IemColor = -1
     init_value: int = 0
 
     def __str__(self) -> str:
@@ -459,8 +550,8 @@ class PdCnv:
     label_y: int = 12
     font: int = 0
     font_size: int = 14
-    bg_color: int = -233017
-    label_color: int = -1
+    bg_color: IemColor = -233017
+    label_color: IemColor = -1
 
     def __str__(self) -> str:
         return (
@@ -484,8 +575,8 @@ class PdVu:
     label_y: int = -8
     font: int = 0
     font_size: int = 10
-    bg_color: int = -262144
-    label_color: int = -1
+    bg_color: IemColor = -262144
+    label_color: IemColor = -1
     scale: int = 1
 
     def __str__(self) -> str:
@@ -508,6 +599,7 @@ PdElement = Union[
     PdConnect,
     PdCoords,
     PdDeclare,
+    PdRaw,
     PdBng,
     PdTgl,
     PdNbx,
@@ -540,10 +632,19 @@ class PdSubpatch:
 
 @dataclass
 class PdPatch:
-    """Root AST node representing a complete PureData patch."""
+    """Root AST node representing a complete PureData patch.
+
+    Attributes
+    ----------
+    preamble : list of PdRaw
+        Statements that appear before the ``#N canvas`` line.  Pd writes data
+        structure templates (``#N struct``) there.  Kept separate so they
+        serialize back above the canvas line where they belong.
+    """
 
     canvas: CanvasProperties
     elements: List[PdElement] = field(default_factory=list)
+    preamble: List["PdRaw"] = field(default_factory=list)
 
     def __str__(self) -> str:
         return serialize(self)
@@ -614,6 +715,24 @@ class ParseError(Exception):
     pass
 
 
+class UnsupportedElementWarning(UserWarning):
+    """Warning issued when converting to the builder API would lose an element.
+
+    The builder models the common subset of the file format. Statements it has
+    no node for -- data structure templates, scalars, array data, box widths --
+    survive in the AST but cannot be carried into a ``Patcher``. Parse and
+    serialize through :func:`parse` / :func:`serialize` to keep them.
+    """
+
+    pass
+
+
+# Atom separators in Pd's binbuf format.  Newlines count: ``binbuf_write`` wraps
+# long statements across physical lines with no continuation marker, so a newline
+# inside a statement separates atoms exactly like a space does.
+_ATOM_SEPARATORS = " \t\n\r\f\v"
+
+
 def _tokenize(text: str) -> List[str]:
     """Tokenize a PureData line, respecting escaped characters and commas."""
     tokens = []
@@ -626,7 +745,7 @@ def _tokenize(text: str) -> List[str]:
             current.append(char)
             current.append(text[i + 1])
             i += 2
-        elif char in " \t":
+        elif char in _ATOM_SEPARATORS:
             if current:
                 tokens.append("".join(current))
                 current = []
@@ -657,6 +776,21 @@ def _parse_float(s: str, default: float = 0.0) -> float:
     """Parse a float, returning default on failure."""
     try:
         return float(s)
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_color(s: str, default: IemColor) -> IemColor:
+    """Parse an IEM GUI colour.
+
+    Pd >= 0.47 writes colours as ``#rrggbb`` hex strings; older versions use a
+    packed negative integer.  The lexeme is kept as-is so the serializer can
+    write back whichever form the file used.
+    """
+    if s.startswith("#"):
+        return s
+    try:
+        return int(s)
     except (ValueError, TypeError):
         return default
 
@@ -709,11 +843,13 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[8], 7) if len(args) > 8 else 7,
             font=_parse_int(args[9], 0) if len(args) > 9 else 0,
             font_size=_parse_int(args[10], 10) if len(args) > 10 else 10,
-            bg_color=_parse_int(args[11], -262144) if len(args) > 11 else -262144,
-            fg_color=_parse_int(args[12], -1) if len(args) > 12 else -1,
-            label_color=_parse_int(args[13], -1) if len(args) > 13 else -1,
+            bg_color=_parse_color(args[11], -262144) if len(args) > 11 else -262144,
+            fg_color=_parse_color(args[12], -1) if len(args) > 12 else -1,
+            label_color=_parse_color(args[13], -1) if len(args) > 13 else -1,
         )
-    elif class_name == "tgl" and len(args) >= 15:
+    # A tgl line carries 14 values: size, init, send, receive, label, label_x,
+    # label_y, font, font_size, bg, fg, label_color, init_value, default_value.
+    elif class_name == "tgl" and len(args) >= 14:
         return PdTgl(
             position=pos,
             size=_parse_int(args[0], 15),
@@ -725,9 +861,9 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[6], 7) if len(args) > 6 else 7,
             font=_parse_int(args[7], 0) if len(args) > 7 else 0,
             font_size=_parse_int(args[8], 10) if len(args) > 8 else 10,
-            bg_color=_parse_int(args[9], -262144) if len(args) > 9 else -262144,
-            fg_color=_parse_int(args[10], -1) if len(args) > 10 else -1,
-            label_color=_parse_int(args[11], -1) if len(args) > 11 else -1,
+            bg_color=_parse_color(args[9], -262144) if len(args) > 9 else -262144,
+            fg_color=_parse_color(args[10], -1) if len(args) > 10 else -1,
+            label_color=_parse_color(args[11], -1) if len(args) > 11 else -1,
             init_value=_parse_int(args[12], 0) if len(args) > 12 else 0,
             default_value=_parse_int(args[13], 0) if len(args) > 13 else 0,
         )
@@ -748,9 +884,9 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[10], -8),
             font=_parse_int(args[11], 0),
             font_size=_parse_int(args[12], 10),
-            bg_color=_parse_int(args[13], -262144),
-            fg_color=_parse_int(args[14], -1),
-            label_color=_parse_int(args[15], -1),
+            bg_color=_parse_color(args[13], -262144),
+            fg_color=_parse_color(args[14], -1),
+            label_color=_parse_color(args[15], -1),
             init_value=_parse_float(args[16], 0.0),
             log_height=_parse_int(args[17], 256),
         )
@@ -771,9 +907,9 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[10], -9),
             font=_parse_int(args[11], 0),
             font_size=_parse_int(args[12], 10),
-            bg_color=_parse_int(args[13], -262144),
-            fg_color=_parse_int(args[14], -1),
-            label_color=_parse_int(args[15], -1),
+            bg_color=_parse_color(args[13], -262144),
+            fg_color=_parse_color(args[14], -1),
+            label_color=_parse_color(args[15], -1),
             init_value=_parse_float(args[16], 0.0),
             steady=_parse_int(args[17], 1),
         )
@@ -794,9 +930,9 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[10], -8),
             font=_parse_int(args[11], 0),
             font_size=_parse_int(args[12], 10),
-            bg_color=_parse_int(args[13], -262144),
-            fg_color=_parse_int(args[14], -1),
-            label_color=_parse_int(args[15], -1),
+            bg_color=_parse_color(args[13], -262144),
+            fg_color=_parse_color(args[14], -1),
+            label_color=_parse_color(args[15], -1),
             init_value=_parse_float(args[16], 0.0),
             steady=_parse_int(args[17], 1),
         )
@@ -815,9 +951,9 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[8], -8),
             font=_parse_int(args[9], 0),
             font_size=_parse_int(args[10], 10),
-            bg_color=_parse_int(args[11], -262144),
-            fg_color=_parse_int(args[12], -1),
-            label_color=_parse_int(args[13], -1),
+            bg_color=_parse_color(args[11], -262144),
+            fg_color=_parse_color(args[12], -1),
+            label_color=_parse_color(args[13], -1),
             init_value=_parse_int(args[14], 0),
         )
 
@@ -835,9 +971,9 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[8], -8),
             font=_parse_int(args[9], 0),
             font_size=_parse_int(args[10], 10),
-            bg_color=_parse_int(args[11], -262144),
-            fg_color=_parse_int(args[12], -1),
-            label_color=_parse_int(args[13], -1),
+            bg_color=_parse_color(args[11], -262144),
+            fg_color=_parse_color(args[12], -1),
+            label_color=_parse_color(args[13], -1),
             init_value=_parse_int(args[14], 0),
         )
 
@@ -854,8 +990,8 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[7], 12),
             font=_parse_int(args[8], 0),
             font_size=_parse_int(args[9], 14),
-            bg_color=_parse_int(args[10], -233017),
-            label_color=_parse_int(args[11], -1),
+            bg_color=_parse_color(args[10], -233017),
+            label_color=_parse_color(args[11], -1),
         )
 
     elif class_name == "vu" and len(args) >= 12:
@@ -869,8 +1005,8 @@ def _parse_obj(tokens: List[str]) -> PdElement:
             label_y=_parse_int(args[5], -8),
             font=_parse_int(args[6], 0),
             font_size=_parse_int(args[7], 10),
-            bg_color=_parse_int(args[8], -262144),
-            label_color=_parse_int(args[9], -1),
+            bg_color=_parse_color(args[8], -262144),
+            label_color=_parse_color(args[9], -1),
             scale=_parse_int(args[10], 1),
         )
 
@@ -902,8 +1038,10 @@ def _parse_floatatom(tokens: List[str]) -> PdFloatAtom:
     label = tokens[8] if len(tokens) > 8 else "-"
     receive = tokens[9] if len(tokens) > 9 else "-"
     send = tokens[10] if len(tokens) > 10 else "-"
+    # Pd >= 0.52 appends a per-box font size; older files stop at the send symbol.
+    font_size = _parse_int(tokens[11], 0) if len(tokens) > 11 else None
 
-    return PdFloatAtom(pos, width, lower, upper, label_pos, label, receive, send)
+    return PdFloatAtom(pos, width, lower, upper, label_pos, label, receive, send, font_size)
 
 
 def _parse_symbolatom(tokens: List[str]) -> PdSymbolAtom:
@@ -919,8 +1057,10 @@ def _parse_symbolatom(tokens: List[str]) -> PdSymbolAtom:
     label = tokens[8] if len(tokens) > 8 else "-"
     receive = tokens[9] if len(tokens) > 9 else "-"
     send = tokens[10] if len(tokens) > 10 else "-"
+    # Pd >= 0.52 appends a per-box font size; older files stop at the send symbol.
+    font_size = _parse_int(tokens[11], 0) if len(tokens) > 11 else None
 
-    return PdSymbolAtom(pos, width, lower, upper, label_pos, label, receive, send)
+    return PdSymbolAtom(pos, width, lower, upper, label_pos, label, receive, send, font_size)
 
 
 def _parse_text(tokens: List[str]) -> PdText:
@@ -962,10 +1102,11 @@ def _parse_connect(tokens: List[str]) -> PdConnect:
 
 
 def _parse_coords(tokens: List[str]) -> PdCoords:
-    """Parse #X coords line."""
+    """Parse a ``#X coords`` line in either its seven- or nine-value form."""
     if len(tokens) < 9:
         raise ParseError(f"Invalid coords line: {tokens}")
 
+    has_margins = len(tokens) > 10
     return PdCoords(
         x_from=_parse_float(tokens[2]),
         y_from=_parse_float(tokens[3]),
@@ -973,10 +1114,9 @@ def _parse_coords(tokens: List[str]) -> PdCoords:
         y_to=_parse_float(tokens[5]),
         width=_parse_int(tokens[6]),
         height=_parse_int(tokens[7]),
-        graph_on_parent=_parse_int(tokens[8], 1) if len(tokens) > 8 else 1,
-        hide_name=_parse_int(tokens[9], 0) if len(tokens) > 9 else 0,
-        x_margin=_parse_int(tokens[10], 0) if len(tokens) > 10 else 0,
-        y_margin=_parse_int(tokens[11], 0) if len(tokens) > 11 else 0,
+        graph_on_parent=_parse_int(tokens[8], 1),
+        x_margin=_parse_int(tokens[9], 0) if has_margins else None,
+        y_margin=_parse_int(tokens[10], 0) if has_margins else None,
     )
 
 
@@ -998,10 +1138,11 @@ def _parse_declare(tokens: List[str]) -> PdDeclare:
             i += 2
         elif tok == "-stdpath":
             stdpath = True
-            i += 1
+            # -stdpath takes a value (a path relative to Pd's standard directory)
+            i += 2 if i + 1 < len(tokens) else 1
         elif tok == "-stdlib":
             stdlib = True
-            i += 1
+            i += 2 if i + 1 < len(tokens) else 1
         else:
             i += 1
     return PdDeclare(
@@ -1009,19 +1150,23 @@ def _parse_declare(tokens: List[str]) -> PdDeclare:
         libs=tuple(libs),
         stdpath=stdpath,
         stdlib=stdlib,
+        args=tuple(tokens[2:]),
     )
 
 
 def _parse_restore(tokens: List[str]) -> PdRestore:
-    """Parse #X restore line."""
-    # #X restore x y pd name
-    if len(tokens) < 6:
+    """Parse a ``#X restore`` line.
+
+    Two forms occur: ``#X restore <x> <y> pd <name>;`` closes a subpatch and
+    ``#X restore <x> <y> graph;`` closes an array/graph canvas.
+    """
+    if len(tokens) < 5:
         raise ParseError(f"Invalid restore line: {tokens}")
 
     pos = Position(_parse_int(tokens[2]), _parse_int(tokens[3]))
-    # tokens[4] should be 'pd'
+    kind = tokens[4]
     name = " ".join(tokens[5:]) if len(tokens) > 5 else ""
-    return PdRestore(pos, name)
+    return PdRestore(pos, name, kind)
 
 
 def _preprocess(content: str) -> str:
@@ -1074,6 +1219,16 @@ def _split_statements(content: str) -> List[str]:
     return statements
 
 
+# Unmodelled ``#X`` commands that Pd still counts as objects on the canvas.
+# Getting this right matters because ``#X connect`` indices are object indices.
+_RAW_OBJECT_COMMANDS = frozenset({"scalar", "listbox"})
+
+
+def _raw_text(stmt: str) -> str:
+    """Strip the trailing semicolon from a statement so PdRaw can re-add it."""
+    return stmt[:-1].rstrip() if stmt.endswith(";") else stmt
+
+
 def parse(content: str) -> PdPatch:
     """Parse PureData patch content into an AST.
 
@@ -1102,6 +1257,7 @@ def parse(content: str) -> PdPatch:
     patch_stack: List[Tuple[CanvasProperties, List[PdElement]]] = []
     current_canvas: Optional[CanvasProperties] = None
     current_elements: List[PdElement] = []
+    preamble: List[PdRaw] = []
 
     for stmt in statements:
         tokens = _tokenize(stmt)
@@ -1118,6 +1274,17 @@ def parse(content: str) -> PdPatch:
                 patch_stack.append((current_canvas, current_elements))
                 current_elements = []
             current_canvas = canvas
+
+        elif directive == "#N" or directive == "#A":
+            # Data-structure templates (#N struct) and array data (#A ...).
+            # Neither is modelled; keep the statement verbatim so it survives
+            # a round trip.  Neither occupies a #X connect index.  Pd writes
+            # struct templates above the canvas line, so those go in the preamble.
+            raw = PdRaw(_raw_text(stmt))
+            if current_canvas is None:
+                preamble.append(raw)
+            else:
+                current_elements.append(raw)
 
         elif directive == "#X":
             if current_canvas is None:
@@ -1155,17 +1322,18 @@ def parse(content: str) -> PdPatch:
             elif cmd == "pop":
                 # Some patches use #X pop instead of #X restore
                 pass
-            # Add more commands as needed
             else:
-                # Unknown command - store as generic object
-                if len(tokens) >= 4:
-                    pos = Position(_parse_int(tokens[2], 0), _parse_int(tokens[3], 0))
-                    current_elements.append(PdObj(pos, cmd, tuple(tokens[4:])))
+                # Anything outside the modelled subset is preserved verbatim
+                # rather than guessed at.  Rewriting an unrecognised directive
+                # as an object box produces a file that loads but is wrong.
+                current_elements.append(
+                    PdRaw(_raw_text(stmt), is_object=cmd in _RAW_OBJECT_COMMANDS)
+                )
 
     if current_canvas is None:
         raise ParseError("No canvas found in patch")
 
-    return PdPatch(current_canvas, current_elements)
+    return PdPatch(current_canvas, current_elements, preamble)
 
 
 def parse_file(filepath: str) -> PdPatch:
@@ -1202,7 +1370,8 @@ def serialize(patch: PdPatch) -> str:
     str
         The PureData file content
     """
-    lines = [f"#N canvas {patch.canvas};"]
+    lines = [str(raw) for raw in patch.preamble]
+    lines.append(f"#N canvas {patch.canvas};")
 
     for elem in patch.elements:
         if isinstance(elem, PdSubpatch):
@@ -1310,21 +1479,26 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             subpatch_canvas = CanvasProperties(
                 0, 0, node.canvas_width, node.canvas_height, 10, "(subpatch)", 0
             )
-            restore = PdRestore(pos, p["name"])
+            restore = (
+                PdRestore(pos, "", "graph")
+                if p.get("is_graph")
+                else PdRestore(pos, p["name"], "pd")
+            )
             inner_elements = list(inner_ast.elements)
             if p["graph_on_parent"]:
+                rect = p.get("gop_rect", (0, 1, 1, 0))
+                margins = p.get("gop_margins", (0, 0))
                 inner_elements.append(
                     PdCoords(
-                        0,
-                        1,
-                        1,
-                        0,
+                        rect[0],
+                        rect[1],
+                        rect[2],
+                        rect[3],
                         p["gop_width"],
                         p["gop_height"],
-                        1,
-                        int(p["hide_name"]),
-                        0,
-                        0,
+                        2 if p["hide_name"] else 1,
+                        None if margins is None else margins[0],
+                        None if margins is None else margins[1],
                     )
                 )
             elements.append(PdSubpatch(subpatch_canvas, inner_elements, restore))
@@ -1588,18 +1762,26 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
     """
     from . import api
 
-    patch = api.Patcher()
+    # The object registry cannot know the arity of externals, abstractions, or
+    # objects it has no entry for. A patch PureData accepts must still be
+    # representable here, so out-of-range indices warn rather than raise.
+    patch = api.Patcher(validate_links=False)
 
     # First pass: create all nodes (non-connections)
     node_map: List[Optional[api.Node]] = []  # Track nodes for linking
     node: api.Node
     for elem in ast.elements:
         if isinstance(elem, PdObj):
-            node = patch.add(elem.text, x_pos=elem.position.x, y_pos=elem.position.y)
+            # elem.text is already in PureData's escaped form; escaping it a
+            # second time would corrupt every escaped semicolon, comma and
+            # dollar-argument in the patch.
+            node = patch.add(elem.text, x_pos=elem.position.x, y_pos=elem.position.y, escaped=True)
             node_map.append(node)
 
         elif isinstance(elem, PdMsg):
-            node = patch.add_msg(elem.content, x_pos=elem.position.x, y_pos=elem.position.y)
+            node = patch.add_msg(
+                elem.content, x_pos=elem.position.x, y_pos=elem.position.y, escaped=True
+            )
             node_map.append(node)
 
         elif isinstance(elem, PdFloatAtom):
@@ -1650,10 +1832,23 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             for sub_elem in elem.elements:
                 if isinstance(sub_elem, PdCoords) and sub_elem.graph_on_parent >= 1:
                     gop_kwargs["graph_on_parent"] = True
-                    gop_kwargs["hide_name"] = bool(sub_elem.hide_name)
+                    gop_kwargs["hide_name"] = sub_elem.hide_name
                     gop_kwargs["gop_width"] = sub_elem.width
                     gop_kwargs["gop_height"] = sub_elem.height
+                    gop_kwargs["gop_rect"] = (
+                        sub_elem.x_from,
+                        sub_elem.y_from,
+                        sub_elem.x_to,
+                        sub_elem.y_to,
+                    )
+                    gop_kwargs["gop_margins"] = (
+                        None
+                        if sub_elem.x_margin is None and sub_elem.y_margin is None
+                        else (sub_elem.x_margin or 0, sub_elem.y_margin or 0)
+                    )
                     break
+            if elem.restore is not None and elem.restore.is_graph:
+                gop_kwargs["is_graph"] = True
             node = patch.add_subpatch(
                 name,
                 inner_patch,
@@ -1872,12 +2067,26 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             patch.nodes.append(node)
             node_map.append(node)
 
-        elif isinstance(elem, PdConnect):
-            # Skip connections in first pass
-            pass
+        elif isinstance(elem, PdRaw):
+            # The builder has no representation for these, so converting drops
+            # them. Say so rather than losing patch content silently; the AST
+            # API round-trips them intact.
+            kind = " ".join(elem.text.split()[:2]) or "?"
+            warnings.warn(
+                f"to_builder() cannot represent {kind!r} statements; "
+                f"dropping: {elem.text[:60]!r}. Use the AST API to preserve them.",
+                UnsupportedElementWarning,
+                stacklevel=2,
+            )
+            # Only occupy a connect index if Pd counts the statement as an
+            # object, otherwise every following index shifts.
+            if elem.is_object:
+                node_map.append(None)
 
-        elif isinstance(elem, PdDeclare):
-            # Declare has no builder equivalent; skip silently
+        elif isinstance(elem, (PdConnect, PdCoords, PdDeclare)):
+            # None of these is an object, so none consumes a connect index.
+            # Connections are handled in the second pass; coords are folded into
+            # the enclosing subpatch; declare has no builder equivalent.
             pass
 
         else:
@@ -1890,6 +2099,15 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             sink = node_map[elem.sink_id] if elem.sink_id < len(node_map) else None
             if source is not None and sink is not None:
                 patch.link(source, sink, outlet=elem.outlet_id, inlet=elem.inlet_id)
+            else:
+                # An endpoint is an element the builder could not create.
+                warnings.warn(
+                    f"dropping connection {elem.source_id} {elem.outlet_id} "
+                    f"{elem.sink_id} {elem.inlet_id}: an endpoint has no builder "
+                    f"representation. Use the AST API to preserve it.",
+                    UnsupportedElementWarning,
+                    stacklevel=2,
+                )
 
     return patch
 

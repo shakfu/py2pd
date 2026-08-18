@@ -8,7 +8,7 @@ py2pd provides two complementary APIs for working with PureData patches:
 
 - **Builder API** (``api.py``) -- Mutable, imperative patch construction. Best for
   creating patches programmatically.
-- **AST API** (``ast.py``) -- Frozen dataclasses for lossless round-trip parsing. Best
+- **AST API** (``ast.py``) -- Frozen dataclasses for round-trip parsing. Best
   for reading, analyzing, and transforming existing patches.
 
 Bridge functions connect them: ``from_builder()`` converts a ``Patcher`` to a
@@ -177,7 +177,7 @@ The Builder API is ergonomic for construction -- you call ``add()``, ``link()``,
 get a patch. But it is lossy: it doesn't preserve every formatting detail of an
 existing ``.pd`` file.
 
-The AST API preserves every detail for lossless round-trip of existing patches. But
+The AST API preserves the detail of existing patches on round trip. But
 frozen dataclasses would make the construction API painful (no in-place mutation,
 no position tracking).
 

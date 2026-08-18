@@ -1327,18 +1327,31 @@ class TestPdCoords:
         assert elem.graph_on_parent == 1
 
     def test_parse_with_minimal_fields(self):
+        """The seven-value form carries no margins, and serializes back as seven."""
         content = "#N canvas 0 50 1000 600 10;\n#X coords 0 1 1 0 100 80 1;"
         ast = parse(content)
         elem = ast.elements[0]
         assert isinstance(elem, PdCoords)
-        assert elem.hide_name == 0
-        assert elem.x_margin == 0
-        assert elem.y_margin == 0
+        assert elem.hide_name is False
+        assert elem.x_margin is None
+        assert elem.y_margin is None
+        assert str(elem) == "#X coords 0 1 1 0 100 80 1;"
+
+    def test_hide_name_is_encoded_in_the_gop_flag(self):
+        """PureData writes gop=2 to hide the object name; there is no separate field."""
+        content = "#N canvas 0 50 1000 600 10;\n#X coords 0 -1 1 1 85 60 2 100 100;"
+        elem = parse(content).elements[0]
+        assert isinstance(elem, PdCoords)
+        assert elem.graph_on_parent == 2
+        assert elem.hide_name is True
+        # The two trailing values are margins, not a hide flag plus a margin.
+        assert (elem.x_margin, elem.y_margin) == (100, 100)
+        assert str(elem) == "#X coords 0 -1 1 1 85 60 2 100 100;"
 
     def test_str_roundtrip(self):
-        coords = PdCoords(0, 1, 1, 0, 200, 140, 1, 0, 5, 10)
+        coords = PdCoords(0, 1, 1, 0, 200, 140, 1, 5, 10)
         result = str(coords)
-        assert result == "#X coords 0 1 1 0 200 140 1 0 5 10;"
+        assert result == "#X coords 0 1 1 0 200 140 1 5 10;"
 
     def test_coords_in_patch_context(self):
         content = (
@@ -1411,7 +1424,7 @@ class TestGOPBridge:
         inner_canvas = CanvasProperties(0, 0, 400, 300, 10, "(subpatch)", 0)
         inner_elements = [
             PdObj(Position(50, 50), "inlet"),
-            PdCoords(0, 1, 1, 0, 150, 100, 1, 1, 0, 0),
+            PdCoords(0, 1, 1, 0, 150, 100, 2, 0, 0),
         ]
         restore = PdRestore(Position(100, 200), "controls")
         subpatch = PdSubpatch(inner_canvas, inner_elements, restore)
