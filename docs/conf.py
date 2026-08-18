@@ -8,11 +8,17 @@ sys.path.insert(0, os.path.abspath(os.path.join("..", "src")))
 
 # -- Project information ------------------------------------------------------
 project = "py2pd"
-copyright = "2024, Shakeeb Alireza"
+copyright = "2026, Shakeeb Alireza"
 author = "Shakeeb Alireza"
 
-# The full version, including alpha/beta/rc tags
-release = "0.1.1"
+# Read the version from package metadata rather than restating it, so the docs
+# cannot drift out of step with pyproject.toml the way they had.
+try:
+    from importlib.metadata import version as _package_version
+
+    release = _package_version("py2pd")
+except Exception:  # package not installed, e.g. a docs-only checkout
+    release = "unknown"
 
 # -- General configuration ----------------------------------------------------
 extensions = [

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
+Corrects the parser against PureData's actual file format. Every finding in
+`REVIEW.md` is addressed. Against the 371 patches shipped with PureData 0.55,
+parse errors went from 126 to 0 and byte-identical round-trips from 24 to 345;
+the remainder differ only where older PureData versions wrapped statements
+across physical lines, which 0.55 no longer does.
+
+### Changed -- incompatible
+
+Several of these change types or field layouts that were simply wrong about the
+format. Code that constructed the affected AST nodes positionally, or relied on
+the old object registry, needs updating.
+
+- `PdCoords` no longer has a `hide_name` field. PureData encodes "hide the
+  object name" in the graph-on-parent flag itself (`2` rather than `1`), and the
+  two values after that flag are the viewport margins. `hide_name` is now a
+  read-only property, and `x_margin` / `y_margin` moved up one position and
+  default to `None` (the seven-value form of the statement).
+- `PdRestore` gained a `kind` field (`"pd"`, `"graph"` or `"pop"`) and `name`
+  now defaults to `""`.
+- `PdPatch` gained a `preamble` field for statements that precede the canvas
+  line.
+- Unrecognised statements parse to the new `PdRaw` node instead of being
+  rewritten as `#X obj` boxes.
+- `PD_OBJECT_REGISTRY` no longer contains `dac~`, `adc~`, `trigger`, `t`,
+  `pack`, `unpack`, `route`, `select`, `sel` or `list`; their arity depends on
+  creation arguments and they moved to `PD_OBJECT_IO_RULES`. Use
+  `lookup_object_io(text)` rather than indexing either table directly. Fourteen
+  further entries had incorrect counts and were corrected.
+- `add_abstraction()` without explicit counts now reports unknown arity
+  (`None`) rather than zero, so connections to it are no longer rejected.
+- `Comment` escapes its content by default; pass `escaped=True` for text that is
+  already in PureData's form.
+- IEM colour fields and parameters are typed `int | str`, since PureData >= 0.47
+  writes colours as hex strings.
+- `link()` rejects negative inlet and outlet indices, which PureData refuses at
+  load time.
+- The project ships the MIT license text with upstream attribution. The
+  repository previously carried GPL-3.0 text while all published releases
+  declared MIT; see the licensing note under Fixed.
+
 ### Fixed
 
 - **Parser: newlines are atom separators.** PureData wraps long statements across
@@ -327,6 +369,8 @@ Initial release. A complete rewrite of [puredata-compiler](https://github.com/dy
   - `PdConnectionError`, `NodeNotFoundError`, `InvalidConnectionError`, `CycleWarning`
 
 [Unreleased]: https://github.com/shakfu/py2pd/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/shakfu/py2pd/compare/v0.1.2...v0.2.0
+[0.2.0]: https://github.com/shakfu/py2pd/compare/v0.1.3...v0.2.0
+[0.1.3]: https://github.com/shakfu/py2pd/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/shakfu/py2pd/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/shakfu/py2pd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shakfu/py2pd/releases/tag/v0.1.0
