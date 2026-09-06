@@ -91,4 +91,4 @@ __all__ = [
     "extract_declare_paths",
 ]
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

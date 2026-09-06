@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.3]
+
 ### Changed
 
 - **`to_builder()` carries what it does not model instead of warning about it.** A patch read into the builder and written back is now byte-identical: 348 of 348 patches in the PureData 0.56 documentation corpus survive `parse -> to_builder -> from_builder -> serialize` unchanged, against 24 before. `#N struct` preambles, `#X scalar`, `#A` array data, `#X f` box widths, `#X declare` and an `#X coords` no subpatch folded become `Raw`, `Declare` and `Coords` nodes that write themselves back verbatim. `UnsupportedElementWarning` is now issued only for a connection whose endpoint has no builder node at all.
