@@ -12,12 +12,21 @@ This module demonstrates all major features of py2pd:
 - Validation and error handling
 """
 
+import os
+from pathlib import Path
+
 from py2pd import (
     CycleWarning,
     GridLayoutManager,
     InvalidConnectionError,
     NodeNotFoundError,
     Patcher,
+)
+
+# Where the generated .pd and .svg files land. Defaults to build/eg-output at the
+# repo root; override with PY2PD_EG_OUTPUT to write elsewhere.
+OUTPUT_DIR = Path(
+    os.environ.get("PY2PD_EG_OUTPUT", Path(__file__).resolve().parents[2] / "build" / "eg-output")
 )
 
 # =============================================================================
@@ -115,7 +124,7 @@ def envelope_subpatch() -> Patcher:
     p.add_msg("0 $4")
 
     p.link(trigger, msg_attack, outlet=0)
-    p.link(pack, msg_attack, inlet=1)
+    p.link(pack, msg_attack, inlet=0)
     p.link(msg_attack, adsr)
 
     # Output
@@ -171,10 +180,11 @@ def grid_layout_demo() -> Patcher:
     grid = GridLayoutManager(columns=4, cell_width=80, cell_height=35)
     p = Patcher("grid_demo.pd", layout=grid)
 
-    # Create a 4x4 grid of objects
+    # Create a 4x4 grid of objects. They are real objects rather than
+    # placeholder names so the saved patch also opens in PureData.
     nodes = []
     for i in range(16):
-        node = p.add(f"obj{i}")
+        node = p.add(f"f {i}")
         nodes.append(node)
 
     # Connect in a chain
@@ -256,9 +266,11 @@ def error_handling_demo():
     import warnings
 
     p4 = Patcher()
-    a = p4.add("delread~ delay")
-    b = p4.add("+~")
-    c = p4.add("delwrite~ delay")
+    # delwrite~ has no outlet, so the cycle is built from control objects that
+    # do: this is the classic counter that stack-overflows in Pd.
+    a = p4.add("f")
+    b = p4.add("+ 1")
+    c = p4.add("t f")
     p4.link(a, b)
     p4.link(b, c)
     p4.link(c, a)  # Creates a cycle (feedback loop)
@@ -301,8 +313,10 @@ def svg_export_demo() -> Patcher:
     p.link(gain, dac, inlet=1)
 
     # Export as SVG
-    p.save_svg("svg_demo.svg")
-    print("SVG saved to svg_demo.svg")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    svg_path = OUTPUT_DIR / "svg_demo.svg"
+    p.save_svg(str(svg_path))
+    print(f"SVG saved to {svg_path}")
 
     # Get SVG as string
     svg_content = p.to_svg(padding=30, node_height=25)
@@ -393,32 +407,32 @@ if __name__ == "__main__":
     # Example 1: Simple synth
     print("\n1. Simple Synthesizer")
     patch = simple_synth()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
     n_nodes, n_conns = len(patch.nodes), len(patch.connections)
     print(f"   Saved: simple_synth.pd ({n_nodes} nodes, {n_conns} connections)")
 
     # Example 2: GUI elements
     print("\n2. GUI Elements Demo")
     patch = gui_elements_demo()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
     print(f"   Saved: gui_demo.pd ({len(patch.nodes)} nodes)")
 
     # Example 3: Subpatch
     print("\n3. Synthesizer with Envelope Subpatch")
     patch = synth_with_subpatch()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
     print("   Saved: synth_with_envelope.pd")
 
     # Example 4: Grid layout
     print("\n4. Grid Layout Demo")
     patch = grid_layout_demo()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
     print("   Saved: grid_demo.pd (4x4 grid)")
 
     # Example 5: Auto layout
     print("\n5. Auto Layout Demo")
     patch = auto_layout_demo()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
     print("   Saved: auto_layout_demo.pd (auto-arranged)")
 
     # Example 6: Error handling
@@ -428,12 +442,12 @@ if __name__ == "__main__":
     # Example 7: SVG export
     print("\n7. SVG Export Demo")
     patch = svg_export_demo()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
 
     # Example 8: Complex patch
     print("\n8. Polyphonic Voice")
     patch = poly_voice()
-    patch.save()
+    patch.save(to_dir=OUTPUT_DIR)
     print(
         f"   Saved: poly_voice.pd ({len(patch.nodes)} nodes, {len(patch.connections)} connections)"
     )

@@ -6,15 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.1]
+
 ### Changed
 
 - `Patcher(filename=...)` accepts a `str` or a `Path`, and `self.filename` is stored as a `Path`. Code comparing `patch.filename` to a string needs `Path(...)` or `str(patch.filename)`.
 
 - `Patcher.save()` gained an optional keyword-only `to_dir` for the output directory. Only the base name of the filename is used, so one patch can be written to several directories without rebuilding the path each time. The directory is created if missing.
 
+### Added
+
+- `make examples` runs `tests/examples/example.py`, then `tests/examples/check_output.py` over what it wrote. Generated `.pd` and `.svg` files go to `build/eg-output` instead of the working directory; set `PY2PD_EG_OUTPUT` to write elsewhere. `make clean` now removes `build/`.
+
+  The checker requires each `.pd` to re-parse and re-serialize byte-identically, then to open in PureData with a silent console. The load check is skipped when no `pd` binary is found; set `PD_BIN` to point at one. It found every defect listed below on its first run.
+
 ### Fixed
 
+- **`#X floatatom` was written with eight fields instead of nine.** `label_pos` was missing and the limits were emitted upper-before-lower, so `add_float(label='freq')` wrote the label text into the integer `label_pos` slot. `Float`'s parameters now run `width lower upper label_pos label receive send`, matching `PdFloatAtom` and `Symbol`, and `add_float()` gained `label_pos`. `add_float()` is keyword-only, but a positional `Float(...)` call swaps the two limits silently, both being numbers.
+
+- **`escape()` wrote two spaces after an escaped comma or semicolon.** It inserted its own flanking spaces without absorbing the ones already there, so `add_msg("0, 1 10")` produced `0 \,  1 10`. PureData separates atoms with one space.
+
+- **`Msg` claimed two inlets.** A PureData message box has one; `set ...` goes to that same inlet, and PureData rejects a connection to inlet 1 with `connection failed`. `link(src, msg, inlet=1)` now raises rather than writing a patch PureData refuses to open.
+
+- **Three of the examples in `tests/examples/example.py` were broken.** The cycle-detection demo built its feedback loop through `delwrite~`, which has no outlet, and had no test at all; the grid demo used the placeholder names `obj0`..`obj15`, which PureData cannot create; the envelope subpatch fed `pack` into message-box inlet 1. The existing tests build and save most of these examples but never loaded the result into PureData, so only the first was a visible failure.
+
 - **`pip install py2pd[extras]` failed outright on Windows and Linux ARM.** `cypd` publishes binary wheels only for macOS arm64 and Linux x86_64 and has no source distribution, so resolution errored rather than skipping it. The dependency now carries an environment marker matching the platforms it ships for; elsewhere the extra installs `hvcc` alone, and the libpd integration raises its usual ImportError if used. This also unbroke the Windows CI job, which had started installing the extras.
+
 - **CI actions were pinned to versions running the deprecated Node 20 runtime**, which the runners were already force-migrating to Node 24 and warning about on every run. Bumped to `actions/checkout@v7`, `actions/upload-artifact@v7` and `actions/download-artifact@v8`. `astral-sh/setup-uv` moved to an exact `@v10.0.1`: it stopped publishing floating major tags at v8 as a supply-chain measure, so `@v10` does not resolve.
 
 ## [0.2.0]

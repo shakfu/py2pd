@@ -357,3 +357,60 @@ class TestPopTerminator:
     def test_unmatched_pop_is_an_error(self):
         with pytest.raises(Exception):
             parse("#N canvas 0 50 450 300 12;\n#X pop;\n#X pop;\n")
+
+
+class TestBuilderOutputRoundTrips:
+    """What the builder writes, the parser must read back unchanged.
+
+    Nothing else covers this direction. The builder's own tests assert on
+    substrings, so they passed while ``#X floatatom`` was written with the
+    label_pos field missing and the limits in the wrong order.
+    """
+
+    @staticmethod
+    def assert_stable(patch: Patcher) -> None:
+        written = str(patch)
+        assert serialize(parse(written)).strip() == written.strip()
+
+    def test_float_atom(self):
+        p = Patcher()
+        p.add_float(width=8, lower_limit=0, upper_limit=127, label_pos=2, label="freq")
+        self.assert_stable(p)
+
+    def test_symbol_atom(self):
+        p = Patcher()
+        p.add_symbol(width=15, label_pos=1, label="name")
+        self.assert_stable(p)
+
+    def test_message_with_comma(self):
+        p = Patcher()
+        p.add_msg("0, 1 10")
+        self.assert_stable(p)
+
+    def test_message_with_semicolon(self):
+        p = Patcher()
+        p.add_msg("1; note 440 0.8")
+        self.assert_stable(p)
+
+    def test_every_gui_type(self):
+        p = Patcher()
+        p.add_bang()
+        p.add_toggle()
+        p.add_numberbox()
+        p.add_float()
+        p.add_symbol()
+        p.add_hslider()
+        p.add_vslider()
+        p.add_hradio()
+        p.add_vradio()
+        p.add_canvas()
+        p.add_vu()
+        self.assert_stable(p)
+
+    def test_signal_chain_with_subpatch(self):
+        inner = Patcher()
+        inner.link(inner.add("inlet~"), inner.add("outlet~"))
+        p = Patcher()
+        p.add_subpatch("passthrough", inner)
+        p.add_comment("gain stage; adjust, carefully")
+        self.assert_stable(p)

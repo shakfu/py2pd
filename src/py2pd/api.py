@@ -74,8 +74,10 @@ def _fmt_coord(value: float) -> str:
 def escape(text: str) -> str:
     """Escape special characters for PureData format."""
     save = re.sub(r"\\", r"\\\\", text)
-    save = re.sub(r";", r" \; ", save)
-    save = re.sub(r",", r" \, ", save)
+    # Absorb whitespace already flanking the separator: PureData puts one space
+    # between atoms, and "0, 1 10" would otherwise gain a second one.
+    save = re.sub(r"[ \t]*;[ \t]*", r" \; ", save)
+    save = re.sub(r"[ \t]*,[ \t]*", r" \, ", save)
     save = re.sub(r"\$(?=[0-9])", r"\$", save)
     return save
 
@@ -311,7 +313,8 @@ class Msg(Node):
     text : str
         Message content. Will be escaped for the PureData file format.
     num_inlets : int, optional
-        Number of inlets (default: 2 -- hot inlet + cold inlet for setting contents)
+        Number of inlets (default: 1). A message box has one inlet; contents
+        are replaced by sending ``set ...`` to it, not through a second inlet.
     num_outlets : int, optional
         Number of outlets (default: 1)
     escaped : bool, optional
@@ -324,7 +327,7 @@ class Msg(Node):
         x_pos: int,
         y_pos: int,
         text: str,
-        num_inlets: Optional[int] = 2,
+        num_inlets: Optional[int] = 1,
         num_outlets: Optional[int] = 1,
         *,
         escaped: bool = False,
@@ -369,10 +372,12 @@ class Float(Node):
         Y position in patch coordinates
     width : int
         Display width in characters (default: 5)
-    upper_limit : float
-        Maximum value; 0 means no limit (default: 0)
     lower_limit : float
         Minimum value; 0 means no limit (default: 0)
+    upper_limit : float
+        Maximum value; 0 means no limit (default: 0)
+    label_pos : int
+        Label placement: 0=left, 1=right, 2=top, 3=bottom (default: 0)
     label : str
         Label text (default: ``'-'`` for none)
     receive : str
@@ -386,8 +391,9 @@ class Float(Node):
         x_pos: int,
         y_pos: int,
         width: int = 5,
-        upper_limit: float = 0,
         lower_limit: float = 0,
+        upper_limit: float = 0,
+        label_pos: int = 0,
         label: str = "-",
         receive: str = "-",
         send: str = "-",
@@ -398,8 +404,9 @@ class Float(Node):
             "x_pos": x_pos,
             "y_pos": y_pos,
             "width": width,
-            "upper_limit": upper_limit,
             "lower_limit": lower_limit,
+            "upper_limit": upper_limit,
+            "label_pos": label_pos,
             "label": label,
             "receive": receive,
             "send": send,
@@ -411,8 +418,8 @@ class Float(Node):
         p = self.parameters
         return (
             f"#X floatatom {p['x_pos']} {p['y_pos']} {p['width']} "
-            f"{p['upper_limit']} {p['lower_limit']} {p['label']} "
-            f"{p['receive']} {p['send']};\n"
+            f"{p['lower_limit']} {p['upper_limit']} {p['label_pos']} "
+            f"{p['label']} {p['receive']} {p['send']};\n"
         )
 
     @property
@@ -2414,8 +2421,9 @@ class Patcher:
         self,
         *,
         width: int = 5,
-        upper_limit: float = 0,
         lower_limit: float = 0,
+        upper_limit: float = 0,
+        label_pos: int = 0,
         label: str = "-",
         receive: str = "-",
         send: str = "-",
@@ -2430,10 +2438,12 @@ class Patcher:
         ----------
         width : int
             Display width in characters (default: 5)
-        upper_limit : int
-            Maximum value (0 = no limit)
         lower_limit : int
             Minimum value (0 = no limit)
+        upper_limit : int
+            Maximum value (0 = no limit)
+        label_pos : int
+            Label placement: 0=left, 1=right, 2=top, 3=bottom
         label : str
             Label text (default: '-' for none)
         receive : str
@@ -2447,7 +2457,17 @@ class Patcher:
             The created number box
         """
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
-        node = Float(x_pos, y_pos, width, upper_limit, lower_limit, label, receive, send)
+        node = Float(
+            x_pos,
+            y_pos,
+            width=width,
+            lower_limit=lower_limit,
+            upper_limit=upper_limit,
+            label_pos=label_pos,
+            label=label,
+            receive=receive,
+            send=send,
+        )
         self._register(node, pos_update)
         return node
 

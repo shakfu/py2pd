@@ -260,6 +260,11 @@ class TestMsg:
         msg = Msg(0, 0, "value $1")
         assert "\\$1" in str(msg)
 
+    def test_separator_does_not_double_the_space(self):
+        """PureData writes one space between atoms; "0, 1 10" had two."""
+        assert str(Msg(0, 0, "0, 1 10")) == "#X msg 0 0 0 \\, 1 10;\n"
+        assert str(Msg(0, 0, "1; note 440")) == "#X msg 0 0 1 \\; note 440;\n"
+
 
 class TestFloat:
     """Tests for Float class."""
@@ -295,6 +300,11 @@ class TestFloat:
         assert "Float" in repr_str
         assert "50" in repr_str
         assert "60" in repr_str
+
+    def test_field_layout_matches_puredata(self):
+        """floatatom is: x y width lower upper label_pos label receive send."""
+        fa = Float(10, 20, width=8, lower_limit=0, upper_limit=127, label_pos=2, label="freq")
+        assert str(fa) == "#X floatatom 10 20 8 0 127 2 freq - -;\n"
 
     def test_float_limits(self):
         fa = Float(0, 0, upper_limit=99.7, lower_limit=0.5)
@@ -1300,7 +1310,9 @@ class TestNodeInletOutletCounts:
 
     def test_msg_default_counts(self):
         msg = Msg(0, 0, "bang")
-        assert msg.num_inlets == 2  # hot inlet + cold inlet
+        # One inlet, not two: PureData rejects a connection to inlet 1 of a
+        # message box with "connection failed".
+        assert msg.num_inlets == 1
         assert msg.num_outlets == 1
 
     def test_floatatom_default_counts(self):

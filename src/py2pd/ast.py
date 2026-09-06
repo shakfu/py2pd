@@ -1874,12 +1874,13 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node = api.Float(
                 elem.position.x,
                 elem.position.y,
-                elem.width,
-                elem.upper_limit,
-                elem.lower_limit,
-                elem.label,
-                elem.receive,
-                elem.send,
+                width=elem.width,
+                lower_limit=elem.lower_limit,
+                upper_limit=elem.upper_limit,
+                label_pos=elem.label_pos,
+                label=elem.label,
+                receive=elem.receive,
+                send=elem.send,
             )
             patch.nodes.append(node)
             node_map.append(node)

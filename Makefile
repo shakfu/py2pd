@@ -1,8 +1,15 @@
-.PHONY: test lint format typecheck build check publish publish-test \
+.PHONY: test examples lint format typecheck build check publish publish-test \
 		clean docs docs-serve docs-deploy qa
 
 test:
 	@uv run pytest tests/ -v --cov-fail-under=90
+
+# Runs tests/examples/example.py, writing the generated .pd and .svg files to
+# build/eg-output (override with PY2PD_EG_OUTPUT), then checks each .pd
+# round-trips through the parser and loads in PureData if a binary is found.
+examples:
+	@uv run python tests/examples/example.py
+	@uv run python tests/examples/check_output.py
 
 lint:
 	@uv run ruff check src/ tests/
@@ -51,6 +58,6 @@ docs-deploy:
 	@uv run --group docs mkdocs gh-deploy --strict
 
 clean:
-	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/ site/
+	@rm -rf __pycache__ .pytest_cache .mypy_cache dist/ site/ build/
 	@find . -name "*.pyc" -delete
 	@find . -name "__pycache__" -type d -delete
