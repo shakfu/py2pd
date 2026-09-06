@@ -120,8 +120,11 @@ NON_GUI_METHODS: Tuple[str, ...] = (
     "add_abstraction",
     "add_array",
     "add_comment",
+    "add_coords",
+    "add_declare",
     "add_link",
     "add_msg",
+    "add_raw",
     "add_subpatch",
 )
 

@@ -15,6 +15,7 @@ import warnings
 import pytest
 
 from py2pd import Patcher, parse, parse_file, to_builder
+from py2pd.api import Raw, Subpatch
 from py2pd.ast import (
     PdArray,
     PdCoords,
@@ -26,7 +27,7 @@ from py2pd.ast import (
     PdText,
     PdTgl,
     PdVsl,
-    UnsupportedElementWarning,
+    from_builder,
     serialize,
 )
 from tests.gui_params import (
@@ -223,23 +224,105 @@ class TestUnmodelledStatements:
             "#N canvas 0 50 450 300 12;\n"
             "#X obj 10 10 osc~ 440;\n"
             "#X scalar point 40 50 12;\n"
+            "#X f 27;\n"
             "#X obj 10 60 dac~;\n"
             "#X connect 0 0 2 0;\n"
         )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UnsupportedElementWarning)
-            patch = to_builder(parse(content))
-        assert len(patch.connections) == 1
-        conn = patch.connections[0]
-        assert (patch.nodes[conn.source], patch.nodes[conn.sink]) == (
-            patch.nodes[0],
-            patch.nodes[1],
-        )
+        patch = to_builder(parse(content))
 
-    def test_to_builder_warns_rather_than_dropping_silently(self):
+        # Four statements, four nodes: nothing was dropped on the way in.
+        assert len(patch.nodes) == 4
+        conn = patch.connections[0]
+        # The scalar took index 1, so dac~ is 2. "#X f" took none, so it is
+        # still 2 and not 3.
+        assert (conn.source, conn.sink) == (0, 2)
+        assert serialize(from_builder(patch)).strip() == content.strip()
+
+    def test_to_builder_carries_what_it_cannot_model(self):
         content = "#N canvas 0 50 450 300 12;\n#X scalar point 40 50 12;\n"
-        with pytest.warns(UnsupportedElementWarning):
-            to_builder(parse(content))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            patch = to_builder(parse(content))
+        assert serialize(from_builder(patch)).strip() == content.strip()
+
+
+class TestBuilderRoundTripIsLossless:
+    """parse -> to_builder -> from_builder -> serialize must change nothing.
+
+    One fixture carrying every statement the builder does not model, and every
+    field the bridge used to hardcode. The corpus test proves this at scale but
+    needs a PureData install; this one runs everywhere.
+    """
+
+    CONTENT = (
+        "#N struct kitchen float x float y symbol label;\n"
+        "#N canvas 12 34 640 480 12;\n"
+        "#X declare -path ./externals -lib mylib;\n"
+        "#X obj 20 20 osc~ 440;\n"
+        "#X floatatom 20 60 5 0 127 1 freq - - 12;\n"
+        "#X symbolatom 20 90 10 0 0 2 name rcv snd 9;\n"
+        "#X scalar kitchen 40 50 hello;\n"
+        "#A 0 0.5 0.25;\n"
+        "#X f 27;\n"
+        "#N canvas 101 202 305 406 guts 1;\n"
+        "#X obj 10 10 inlet~;\n"
+        "#X obj 10 40 outlet~;\n"
+        "#X restore 20 130 pd guts;\n"
+        "#N canvas 0 0 450 250 (subpatch) 0;\n"
+        "#X array wave 64 float 2;\n"
+        "#A 0 1 0.5;\n"
+        "#X coords 0 1 64 -1 200 140 1;\n"
+        "#X xlabel -0.2 0 1 2;\n"
+        "#X restore 300 20 graph;\n"
+        "#X obj 20 170 dac~;\n"
+        # A trailing escaped space is an atom; splitting the text on whitespace
+        # would swallow it and rewrite the object.
+        "#X obj 20 200 drawnumber dog 0 -15 900 dog\\ =\\ ;\n"
+        # PureData writes kinds beyond "pd" and "graph"; "page" is a real one.
+        "#N canvas 47 74 450 300 (subpatch) 0;\n"
+        "#X restore 260 200 page;\n"
+        "#X connect 0 0 6 0;\n"
+        "#X connect 3 0 6 0;\n"
+        "#X coords 0 0 1 1 85 60 0;\n"
+    )
+
+    def test_the_fixture_round_trips_through_the_ast(self):
+        """Guards the test itself: a builder difference must not be the parser's."""
+        assert serialize(parse(self.CONTENT)).strip() == self.CONTENT.strip()
+
+    def test_bridge_round_trip_is_byte_identical(self):
+        patch = to_builder(parse(self.CONTENT))
+        assert serialize(from_builder(patch)).strip() == self.CONTENT.strip()
+
+    def test_builder_writes_the_same_bytes(self):
+        """str(patch) and the AST writer must not diverge."""
+        assert str(to_builder(parse(self.CONTENT))).strip() == self.CONTENT.strip()
+
+    def test_nothing_is_dropped_on_the_way_in(self):
+        patch = to_builder(parse(self.CONTENT))
+        assert patch.preamble == ["#N struct kitchen float x float y symbol label"]
+        assert len(patch.nodes) == 13
+
+    def test_connect_indices_count_objects_not_nodes(self):
+        """#X declare, #A and #X f sit in the node list without taking an index."""
+        patch = to_builder(parse(self.CONTENT))
+        # osc~ is node 1 and dac~ node 9, but PureData numbers them 0 and 6.
+        assert [(c.source, c.sink) for c in patch.connections] == [(0, 6), (3, 6)]
+
+    def test_a_scalar_can_still_be_connected(self):
+        """The scalar is index 3; a connection to it must survive the trip."""
+        patch = to_builder(parse(self.CONTENT))
+        assert patch.connections[1].source == 3
+        assert isinstance(patch.nodes[4], Raw)
+        assert patch.nodes[4].occupies_connect_index
+
+    def test_subpatch_keeps_its_canvas_line(self):
+        """A subpatch canvas carries a name and an open-on-load flag, not a font size."""
+        node = [n for n in to_builder(parse(self.CONTENT)).nodes if isinstance(n, Subpatch)][0]
+        p = node.parameters
+        assert (p["canvas_x"], p["canvas_y"]) == (101, 202)
+        assert (p["canvas_name"], p["open_on_load"]) == ("guts", 1)
+        assert (node.canvas_width, node.canvas_height) == (305, 406)
 
 
 class TestDeclare:

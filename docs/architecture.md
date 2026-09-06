@@ -125,7 +125,11 @@ PdPatch  --to_builder()----> Patcher
 
 The AST holds text in PureData's escaped form, so `to_builder()` passes `escaped=True` when constructing nodes; escaping it a second time would corrupt every escaped semicolon, comma and dollar argument in the patch.
 
-Elements the builder cannot represent -- `PdRaw` statements, and connections whose endpoints are among them -- raise `UnsupportedElementWarning` rather than vanishing. Statements PureData does not count as objects do not consume a connect index, so the remaining connections keep their meaning.
+Elements the builder does not model -- `PdRaw` statements, `#X declare`, an `#X coords` no subpatch folded -- become `Raw`, `Declare` and `Coords` nodes that write themselves back unchanged. The round trip is lossless: `serialize(from_builder(to_builder(parse(x))))` equals `serialize(parse(x))` for every patch in the corpus.
+
+Two things make that hold. Statements PureData does not count as objects report `occupies_connect_index = False`, so they sit in the node list without shifting a `#X connect` index; `Patcher._connect_index_of()` numbers connections by that count rather than by list position. And a carried statement records whether it was read from below the `#X connect` block, because PureData writes canvas properties there and moving one above them changes the file.
+
+`UnsupportedElementWarning` is left for a connection whose endpoint has no builder node at all, which no corpus patch produces.
 
 ### Validation
 

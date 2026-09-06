@@ -451,4 +451,4 @@ from py2pd import (
 
 `PdConnectionError` is raised eagerly by `link()` when outlet or inlet indices exceed the node's known I/O counts. `Node.__getitem__` (e.g., `osc[2]`) raises `ValueError` for out-of-range outlet indices. Both checks are skipped for objects with unknown counts (`num_outlets=None` / `num_inlets=None`), and `link()` warns instead of raising when the patch was created with `validate_links=False`.
 
-`to_builder()` issues `UnsupportedElementWarning` (from `py2pd.ast`) for any statement the Builder cannot represent, rather than dropping patch content silently.
+`to_builder()` issues `UnsupportedElementWarning` (from `py2pd.ast`) for a connection it cannot rebuild, rather than dropping patch content silently. Statements the Builder does not model are carried verbatim instead of warned about, so `parse -> to_builder -> from_builder -> serialize` returns the bytes it started with.

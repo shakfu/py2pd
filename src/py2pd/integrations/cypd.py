@@ -220,13 +220,13 @@ def validate_patch(
     TypeError
         If *patch* is not a ``Patcher`` or ``PdPatch``.
     """
-    _ensure_libpd()
-
-    import cypd
-
     content = _serialize_input(patch)
 
     with _libpd_lock:
+        _ensure_libpd()
+
+        import cypd
+
         return _validate_locked(
             cypd,
             content,

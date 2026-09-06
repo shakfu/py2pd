@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import warnings
 
 import pytest
 
@@ -720,6 +721,25 @@ class TestBridgeToBuilder:
         assert ast2.elements[0].position.x == 50
 
 
+class TestToBuilderPreamble:
+    """The builder models no preamble statement, but must still write one back."""
+
+    def test_preamble_survives_the_builder(self):
+        source = "#N struct foo float x;\n#N canvas 0 0 450 300 12;\n#X obj 20 30 s bar;\n"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            patch = to_builder(parse(source))
+
+        assert patch.preamble == ["#N struct foo float x"]
+        assert str(patch).strip() == source.strip()
+        assert serialize(from_builder(patch)).strip() == source.strip()
+
+    def test_patch_without_preamble_has_an_empty_one(self):
+        patch = to_builder(parse("#N canvas 0 0 450 300 12;\n#X obj 20 30 s bar;\n"))
+        assert patch.preamble == []
+
+
 class TestTransform:
     """Tests for transform function."""
 
@@ -757,6 +777,63 @@ class TestTransform:
 
         result = transform(patch, remove_print)
         assert len(result.elements) == 1
+
+    def test_transform_preserves_preamble(self):
+        source = (
+            "#N struct foo float x float y;\n"
+            "#N canvas 0 0 450 300 12;\n"
+            "#X scalar foo 10 20 \\;;\n"
+            "#X obj 20 30 s bar;\n"
+        )
+        patch = parse(source)
+        assert len(patch.preamble) == 1
+
+        result = transform(patch, lambda elem: elem)
+
+        assert [str(raw) for raw in result.preamble] == [str(raw) for raw in patch.preamble]
+        assert "#N struct foo float x float y;" in serialize(result)
+
+    def test_transform_preserves_preamble_when_elements_removed(self):
+        source = "#N struct foo float x;\n#N canvas 0 0 450 300 12;\n#X obj 20 30 print;\n"
+        patch = parse(source)
+
+        result = transform(
+            patch,
+            lambda elem: None if isinstance(elem, PdObj) and elem.class_name == "print" else elem,
+        )
+
+        assert result.elements == []
+        assert "#N struct foo float x;" in serialize(result)
+
+    def test_rename_preserves_preamble(self):
+        source = (
+            "#N struct foo float x;\n"
+            "#N canvas 0 0 450 300 12;\n"
+            "#X scalar foo 10 20 \\;;\n"
+            "#X obj 20 30 s bar;\n"
+        )
+        patch = parse(source)
+
+        result = serialize(rename_sends_receives(patch, "bar", "baz"))
+
+        # The scalar is meaningless without the template that declares it.
+        assert "#N struct foo float x;" in result
+        assert "#X scalar foo" in result
+        assert "#X obj 20 30 s baz;" in result
+
+    def test_subpatch_transform_keeps_outer_preamble(self):
+        source = (
+            "#N struct foo float x;\n"
+            "#N canvas 0 0 450 300 12;\n"
+            "#N canvas 0 50 300 200 sub 0;\n"
+            "#X obj 10 10 osc~ 440;\n"
+            "#X restore 20 30 pd sub;\n"
+        )
+        patch = parse(source)
+
+        result = transform(patch, lambda elem: elem)
+
+        assert "#N struct foo float x;" in serialize(result)
 
 
 class TestFindObjects:
@@ -1583,7 +1660,7 @@ class TestPdDeclare:
         assert isinstance(patch.elements[0], PdDeclare)
         assert isinstance(patch.elements[1], PdObj)
 
-    def test_declare_to_builder_skipped(self):
+    def test_declare_survives_the_builder(self):
         content = (
             "#N canvas 0 50 1000 600 10;\n"
             "#X declare -path /externals;\n"
@@ -1593,10 +1670,11 @@ class TestPdDeclare:
         )
         ast = parse(content)
         patch = to_builder(ast)
-        # declare is skipped, but two objects should exist
-        assert len(patch.nodes) == 2
-        # connection should still work (indices are object-based, declare is not an object)
-        assert len(patch.connections) == 1
+        # The declare is carried alongside the two objects.
+        assert len(patch.nodes) == 3
+        # It is not an object, so it consumes no connect index.
+        assert (patch.connections[0].source, patch.connections[0].sink) == (0, 1)
+        assert serialize(from_builder(patch)).strip() == content.strip()
 
     def test_declare_multiple_paths(self):
         content = "#N canvas 0 50 1000 600 10;\n#X declare -path /a -path /b -path /c;"

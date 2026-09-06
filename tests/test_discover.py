@@ -128,6 +128,59 @@ class TestDiscoverExternals:
             assert "binary" in registry
             assert registry["binary"] == (None, None)
 
+    def test_malformed_pd_does_not_abort_scan(self):
+        platform = _platform_key()
+        from py2pd.discover import _EXTERNAL_EXTENSIONS
+
+        exts = _EXTERNAL_EXTENSIONS.get(platform, ())
+        good = "#N canvas 0 50 450 300 10;\n#X obj 50 50 inlet;\n#X obj 50 100 outlet;\n"
+
+        with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
+            # A zero-byte .pd file is the common case: parse() raises on it.
+            with open(os.path.join(dir1, "empty.pd"), "w") as f:
+                f.write("")
+            with open(os.path.join(dir1, "truncated.pd"), "w") as f:
+                f.write("#N canvas broken;")
+            with open(os.path.join(dir1, "first.pd"), "w") as f:
+                f.write(good)
+            if exts:
+                with open(os.path.join(dir1, f"binary{exts[0]}"), "w") as f:
+                    f.write("")
+            # A later search path must still be reached.
+            with open(os.path.join(dir2, "second.pd"), "w") as f:
+                f.write(good)
+
+            registry = discover_externals([dir1, dir2], include_defaults=False)
+
+        assert registry["first"] == (1, 1)
+        assert registry["second"] == (1, 1)
+        assert "empty" not in registry
+        assert "truncated" not in registry
+        if exts:
+            assert registry["binary"] == (None, None)
+
+    def test_unreadable_pd_does_not_abort_scan(self):
+        good = "#N canvas 0 50 450 300 10;\n#X obj 50 50 inlet;\n"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            denied = os.path.join(tmpdir, "denied.pd")
+            with open(denied, "w") as f:
+                f.write(good)
+            os.chmod(denied, 0o000)
+            with open(os.path.join(tmpdir, "readable.pd"), "w") as f:
+                f.write(good)
+
+            if os.access(denied, os.R_OK):
+                pytest.skip("cannot revoke read permission (running as root?)")
+
+            try:
+                registry = discover_externals([tmpdir], include_defaults=False)
+            finally:
+                os.chmod(denied, 0o644)
+
+        assert registry["readable"] == (1, 0)
+        assert "denied" not in registry
+
     def test_nonexistent_path_ignored(self):
         registry = discover_externals(["/nonexistent/path/abc123"], include_defaults=False)
         assert registry == {}

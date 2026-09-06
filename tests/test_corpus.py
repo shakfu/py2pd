@@ -23,7 +23,7 @@ import warnings
 
 import pytest
 
-from py2pd import to_builder
+from py2pd import from_builder, to_builder
 from py2pd.ast import parse, serialize
 
 _DEFAULT_GLOBS = (
@@ -97,6 +97,29 @@ def test_most_patches_roundtrip_byte_for_byte():
             identical += 1
     ratio = identical / len(CORPUS)
     assert ratio >= 0.85, f"only {identical}/{len(CORPUS)} patches round-tripped byte for byte"
+
+
+def test_every_patch_survives_the_builder_unchanged():
+    """parse -> to_builder -> from_builder -> serialize must change nothing.
+
+    The builder models a subset of the file format, so this holds only because
+    what it does not model is carried verbatim. It is the property that catches
+    a field the bridge forgets: dropping one statement or hardcoding one value
+    fails here on hundreds of files while every other test stays green.
+    """
+    failures = []
+    for path in CORPUS:
+        source = Path(path).read_text(encoding="utf-8", errors="replace")
+        baseline = serialize(parse(source))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            through_builder = serialize(from_builder(to_builder(parse(source))))
+        if through_builder != baseline:
+            failures.append(path)
+    assert not failures, (
+        f"{len(failures)}/{len(CORPUS)} patches changed on a builder round trip:\n"
+        + "\n".join(failures[:20])
+    )
 
 
 def test_every_patch_converts_to_the_builder():

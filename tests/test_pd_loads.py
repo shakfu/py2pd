@@ -128,9 +128,10 @@ class TestRoundTrippedPatchesLoad:
         source = os.path.join(os.path.dirname(__file__), "examples", "pd_authored.pd")
         with open(source, encoding="utf-8") as handle:
             ast = parse(handle.read())
-        with pytest.warns(Warning):  # scalar and struct have no builder equivalent
-            patch = to_builder(ast)
+        patch = to_builder(ast)
         assert_loads_cleanly(patch, tmp_path, "rebuilt.pd")
+        # The struct and scalars must come back too, not merely load.
+        assert str(patch).strip() == serialize(ast).strip()
 
     def test_generated_fixture_through_the_builder(self, tmp_path):
         """Double-escaped dollar arguments load without error but mean the wrong thing."""

@@ -4,6 +4,11 @@ Unit tests run without cypd.  Integration tests are skipped if cypd is
 not installed.
 """
 
+import sys
+import threading
+import time
+import types
+
 import pytest
 
 from py2pd.api import Patcher
@@ -181,6 +186,85 @@ class TestValidationResult:
         assert len(r.errors) == 1
         assert len(r.warnings) == 1
         assert len(r.log) == 2
+
+
+class TestConcurrentFirstUse:
+    """libpd is a process-wide singleton; its lazy init must run under the lock."""
+
+    @staticmethod
+    def _fake_cypd(calls, barrier):
+        module = types.ModuleType("cypd")
+
+        def init():
+            calls.append("init")
+            # Wait for every thread to arrive, so an unguarded check-then-set
+            # cannot pass by luck of the scheduler.
+            try:
+                barrier.wait(timeout=0.5)
+            except threading.BrokenBarrierError:
+                pass
+            time.sleep(0.05)
+
+        def init_audio(in_channels, out_channels, sample_rate):
+            calls.append("init_audio")
+
+        module.init = init
+        module.init_audio = init_audio
+        module.set_print_callback = lambda cb: None
+        module.clear_search_path = lambda: None
+        module.add_to_search_path = lambda path: None
+        module.open_patch = lambda name, directory: 1
+        module.close_patch = lambda patch_id: None
+        module.exists = lambda name: True
+        return module
+
+    def test_init_runs_once_under_concurrency(self, monkeypatch):
+        import py2pd.integrations.cypd as mod
+
+        threads_count = 4
+        calls = []
+        barrier = threading.Barrier(threads_count)
+
+        monkeypatch.setitem(sys.modules, "cypd", self._fake_cypd(calls, barrier))
+        monkeypatch.setattr(mod, "_libpd_initialized", False)
+
+        p = Patcher()
+        p.add("osc~ 440")
+
+        results = []
+        errors = []
+
+        def run():
+            try:
+                results.append(
+                    mod.validate_patch(p, include_default_paths=False, use_declare_paths=False)
+                )
+            except Exception as exc:  # pragma: no cover -- surfaces a real failure
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run) for _ in range(threads_count)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert errors == []
+        assert len(results) == threads_count
+        assert calls == ["init", "init_audio"]
+
+    def test_init_is_not_retried_after_success(self, monkeypatch):
+        import py2pd.integrations.cypd as mod
+
+        calls = []
+        monkeypatch.setitem(sys.modules, "cypd", self._fake_cypd(calls, threading.Barrier(1)))
+        monkeypatch.setattr(mod, "_libpd_initialized", False)
+
+        p = Patcher()
+        p.add("osc~ 440")
+        mod.validate_patch(p, include_default_paths=False, use_declare_paths=False)
+        mod.validate_patch(p, include_default_paths=False, use_declare_paths=False)
+
+        assert calls == ["init", "init_audio"]
 
 
 class TestImportErrorWithoutCypd:

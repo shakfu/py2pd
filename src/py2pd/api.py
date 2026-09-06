@@ -6,7 +6,7 @@ import warnings
 
 # The builder writes the same number format as the AST serializer, so it uses
 # the same helper. ast imports api only lazily, so this direction does not cycle.
-from .ast import _fmt_num
+from .ast import PdCoords, PdDeclare, _fmt_num
 
 # Layout constants (pixels)
 ROW_HEIGHT = 25
@@ -221,6 +221,20 @@ class Node:
     hidden: bool = False
     num_inlets: Optional[int] = None
     num_outlets: Optional[int] = None
+    # A carried statement that followed the #X connect lines in the file it was
+    # read from, and so must be written back after them.
+    after_connections: bool = False
+
+    @property
+    def occupies_connect_index(self) -> bool:
+        """Whether PureData counts this node when numbering ``#X connect``.
+
+        Almost everything does. ``#X declare``, ``#A`` array data and ``#X f``
+        box widths are statements rather than objects, so they sit in the node
+        list without taking an index; a node that returns False here shifts no
+        connection.
+        """
+        return True
 
     class Outlet:
         """Reference to a specific outlet of a Node, used for creating connections."""
@@ -463,6 +477,7 @@ class Float(Node):
         send: str = "-",
         num_inlets: Optional[int] = 1,
         num_outlets: Optional[int] = 1,
+        font_size: Optional[int] = None,
     ) -> None:
         self.parameters = {
             "x_pos": x_pos,
@@ -474,16 +489,18 @@ class Float(Node):
             "label": label,
             "receive": receive,
             "send": send,
+            "font_size": font_size,
         }
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
 
     def __str__(self) -> str:
         p = self.parameters
+        tail = "" if p["font_size"] is None else f" {p['font_size']}"
         return (
             f"#X floatatom {p['x_pos']} {p['y_pos']} {p['width']} "
             f"{_fmt_num(p['lower_limit'])} {_fmt_num(p['upper_limit'])} {p['label_pos']} "
-            f"{p['label']} {p['receive']} {p['send']};\n"
+            f"{p['label']} {p['receive']} {p['send']}{tail};\n"
         )
 
     @property
@@ -610,6 +627,12 @@ class Subpatch(Node):
         is_graph: bool = False,
         gop_rect: Tuple[float, float, float, float] = (0, 1, 1, 0),
         gop_margins: Optional[Tuple[int, int]] = (0, 0),
+        canvas_x: int = 0,
+        canvas_y: int = 0,
+        canvas_name: str = "(subpatch)",
+        canvas_font_size: int = 10,
+        open_on_load: int = 0,
+        restore_kind: Optional[str] = None,
     ) -> None:
         """Create a subpatch node.
 
@@ -667,6 +690,12 @@ class Subpatch(Node):
             "is_graph": is_graph,
             "gop_rect": gop_rect,
             "gop_margins": gop_margins,
+            "canvas_x": canvas_x,
+            "canvas_y": canvas_y,
+            "canvas_name": canvas_name,
+            "canvas_font_size": canvas_font_size,
+            "open_on_load": open_on_load,
+            "restore_kind": restore_kind,
         }
         self.num_inlets = num_inlets
         self.num_outlets = num_outlets
@@ -674,7 +703,8 @@ class Subpatch(Node):
     def __str__(self) -> str:
         p = self.parameters
         coords_line = ""
-        if p["graph_on_parent"]:
+        carries_own_coords = any(isinstance(n, Coords) for n in self.src.nodes)
+        if p["graph_on_parent"] and not carries_own_coords:
             # PureData encodes "hide object name and arguments" in the
             # graph-on-parent flag itself: 1 = shown, 2 = hidden. There is no
             # separate field, and the two values after the flag are the
@@ -684,13 +714,17 @@ class Subpatch(Node):
             margins = p.get("gop_margins", (0, 0))
             tail = "" if margins is None else f" {margins[0]} {margins[1]}"
             coords_line = f"#X coords {rect} {p['gop_width']} {p['gop_height']} {gop_flag}{tail};\n"
-        restore = (
-            f"#X restore {p['x_pos']} {p['y_pos']} graph;\n"
-            if p.get("is_graph")
-            else f"#X restore {p['x_pos']} {p['y_pos']} pd {p['name']};\n"
-        )
+        # A parsed subpatch keeps the kind PureData wrote ("page" and others
+        # exist); one the builder created derives it from is_graph. A graph
+        # canvas closes without a name.
+        kind = p.get("restore_kind") or ("graph" if p.get("is_graph") else "pd")
+        name = "" if kind == "graph" else p["name"]
+        suffix = f" {name}" if name else ""
+        restore = f"#X restore {p['x_pos']} {p['y_pos']} {kind}{suffix};\n"
         return (
-            f"#N canvas 0 0 {self.canvas_width} {self.canvas_height} (subpatch) 0;\n"
+            f"#N canvas {p['canvas_x']} {p['canvas_y']} "
+            f"{self.canvas_width} {self.canvas_height} "
+            f"{p['canvas_name']} {p['open_on_load']};\n"
             f"{self.src._subpatch_str()}"
             f"{coords_line}"
             f"{restore}"
@@ -843,6 +877,89 @@ class Array(Node):
     def __repr__(self) -> str:
         p = self.parameters
         return f"Array({p['name']!r}, {p['length']})"
+
+
+class Raw(Node):
+    """A statement py2pd has no builder node for, carried verbatim.
+
+    ``#X scalar``, ``#X listbox``, ``#A`` array data and ``#X f`` box widths
+    have no builder representation, but a patch read with ``to_builder()`` must
+    still write back what it read. The text is stored exactly as parsed.
+
+    Parameters
+    ----------
+    text : str
+        The statement without its trailing semicolon.
+    is_object : bool
+        Whether PureData counts the statement as an object on the canvas, which
+        decides whether it takes a ``#X connect`` index.
+    """
+
+    def __init__(self, text: str, is_object: bool = False) -> None:
+        self.hidden = True
+        self.parameters = {"text": text, "is_object": is_object}
+        self.num_inlets = None
+        self.num_outlets = None
+
+    @property
+    def occupies_connect_index(self) -> bool:
+        return bool(self.parameters["is_object"])
+
+    def __str__(self) -> str:
+        return f"{self.parameters['text']};\n"
+
+    def __repr__(self) -> str:
+        return f"Raw({self.parameters['text'][:40]!r})"
+
+
+class Declare(Node):
+    """A ``#X declare`` statement (search paths and libraries).
+
+    Wraps the AST's ``PdDeclare`` rather than re-modelling it, so the builder
+    writes back exactly what the parser read and ``extract_declare_paths()``
+    keeps working on a patch that went through the builder.
+    """
+
+    def __init__(self, declare: "PdDeclare") -> None:
+        self.hidden = True
+        self.parameters = {"declare": declare}
+        self.num_inlets = 0
+        self.num_outlets = 0
+
+    @property
+    def occupies_connect_index(self) -> bool:
+        return False
+
+    def __str__(self) -> str:
+        return f"{self.parameters['declare']}\n"
+
+    def __repr__(self) -> str:
+        return f"Declare({self.parameters['declare']!r})"
+
+
+class Coords(Node):
+    """An ``#X coords`` statement that no subpatch consumed.
+
+    A subpatch folds its own ``#X coords`` into graph-on-parent parameters. One
+    on the top-level canvas, or a second one inside a subpatch, has nowhere to
+    go, so it is carried as its parsed ``PdCoords``.
+    """
+
+    def __init__(self, coords: "PdCoords") -> None:
+        self.hidden = True
+        self.parameters = {"coords": coords}
+        self.num_inlets = 0
+        self.num_outlets = 0
+
+    @property
+    def occupies_connect_index(self) -> bool:
+        return False
+
+    def __str__(self) -> str:
+        return f"{self.parameters['coords']}\n"
+
+    def __repr__(self) -> str:
+        return f"Coords({self.parameters['coords']!r})"
 
 
 # An IEM GUI colour is either a legacy packed negative integer (PureData < 0.47)
@@ -1043,6 +1160,7 @@ class Symbol(Node):
         label: str = "-",
         receive: str = "-",
         send: str = "-",
+        font_size: Optional[int] = None,
     ) -> None:
         self.parameters = {
             "x_pos": x_pos,
@@ -1054,16 +1172,18 @@ class Symbol(Node):
             "label": label,
             "receive": receive,
             "send": send,
+            "font_size": font_size,
         }
         self.num_inlets = 1
         self.num_outlets = 1
 
     def __str__(self) -> str:
         p = self.parameters
+        tail = "" if p["font_size"] is None else f" {p['font_size']}"
         return (
             f"#X symbolatom {p['x_pos']} {p['y_pos']} {p['width']} "
             f"{_fmt_num(p['lower_limit'])} {_fmt_num(p['upper_limit'])} {p['label_pos']} "
-            f"{p['label']} {p['receive']} {p['send']};\n"
+            f"{p['label']} {p['receive']} {p['send']}{tail};\n"
         )
 
     @property
@@ -2280,6 +2400,14 @@ class Patcher:
         self.canvas_height = canvas_height
         self.font_size = font_size
         self._node_positions: Dict[int, int] = {}
+        # Statements above the #N canvas line (#N struct and friends), carried
+        # verbatim so a parsed patch writes back what it read.
+        self.preamble: List[str] = []
+        # Set once a node that takes no #X connect index is added. While it is
+        # False the connect index is the list position, which is the common case.
+        self._has_unindexed = False
+        self._connect_prefix: List[int] = []
+        self._connect_prefix_len = -1
         # Nodes whose x the caller set. Subpatch I/O ordering may reposition
         # the others; it must never move one the caller placed.
         self._explicit_x: Set[int] = set()
@@ -2565,6 +2693,12 @@ class Patcher:
         is_graph: bool = False,
         gop_rect: Tuple[float, float, float, float] = (0, 1, 1, 0),
         gop_margins: Optional[Tuple[int, int]] = (0, 0),
+        canvas_x: int = 0,
+        canvas_y: int = 0,
+        canvas_name: str = "(subpatch)",
+        canvas_font_size: int = 10,
+        open_on_load: int = 0,
+        restore_kind: Optional[str] = None,
     ) -> Subpatch:
         """Add a subpatch to the patch.
 
@@ -2669,6 +2803,12 @@ class Patcher:
             is_graph=is_graph,
             gop_rect=gop_rect,
             gop_margins=gop_margins,
+            canvas_x=canvas_x,
+            canvas_y=canvas_y,
+            canvas_name=canvas_name,
+            canvas_font_size=canvas_font_size,
+            open_on_load=open_on_load,
+            restore_kind=restore_kind,
         )
         self._register(node, pos_update)
         return node
@@ -2730,7 +2870,9 @@ class Patcher:
         self._register(node, pos_update)
         return node
 
-    def add_array(self, name: str, length: int) -> Array:
+    def add_array(
+        self, name: str, length: int, element_type: str = "float", save_flag: int = 0
+    ) -> Array:
         """Declare an array in the subpatch.
 
         Parameters
@@ -2741,6 +2883,12 @@ class Patcher:
         length : int
             the array length
 
+        element_type : str
+            the array's data type (default ``'float'``)
+
+        save_flag : int
+            whether PureData saves the contents with the patch (default 0)
+
         Returns
         -------
         node : Array
@@ -2748,9 +2896,9 @@ class Patcher:
 
         Notes
         -----
-        The array will not have a graph. Its contents are not stored.
+        The array will not have a graph.
         """
-        node = Array(name, length)
+        node = Array(name, length, element_type, save_flag)
         self._register(node)
         return node
 
@@ -3435,8 +3583,8 @@ class Patcher:
             outlet = source.index
             source = source.owner
 
-        source_index = self._index_of(source, "Source")
-        sink_index = self._index_of(sink, "Sink")
+        source_index = self._connect_index_of(source, "Source")
+        sink_index = self._connect_index_of(sink, "Sink")
 
         if outlet < 0:
             raise PdConnectionError(f"Outlet index must be non-negative, got {outlet}")
@@ -3455,6 +3603,62 @@ class Patcher:
             )
 
         self.connections.append(Connection(source_index, outlet, sink_index, inlet))
+
+    def _connect_index_of(self, node: Node, role: str) -> int:
+        """Return *node*'s ``#X connect`` index.
+
+        Equal to the list position until a node that takes no index is added,
+        after which it is the count of index-taking nodes before it. The prefix
+        sums are cached against the node count, so the link pass over a parsed
+        patch rebuilds them once rather than per connection.
+        """
+        position = self._index_of(node, role)
+        if not self._has_unindexed:
+            return position
+        if self._connect_prefix_len != len(self.nodes):
+            prefix: List[int] = []
+            count = 0
+            for existing in self.nodes:
+                prefix.append(count)
+                if existing.occupies_connect_index:
+                    count += 1
+            self._connect_prefix = prefix
+            self._connect_prefix_len = len(self.nodes)
+        return self._connect_prefix[position]
+
+    def add_raw(self, text: str, is_object: bool = False, after_connections: bool = False) -> Raw:
+        """Append a statement the builder does not model, written back verbatim.
+
+        Parameters
+        ----------
+        text : str
+            The statement without its trailing semicolon.
+        is_object : bool
+            Whether PureData counts it as an object, and so whether it takes a
+            ``#X connect`` index.
+        """
+        node = Raw(text, is_object)
+        node.after_connections = after_connections
+        if not node.occupies_connect_index:
+            self._has_unindexed = True
+        self._register(node)
+        return node
+
+    def add_declare(self, declare: PdDeclare, after_connections: bool = False) -> Declare:
+        """Append a ``#X declare`` statement, written back verbatim."""
+        node = Declare(declare)
+        node.after_connections = after_connections
+        self._has_unindexed = True
+        self._register(node)
+        return node
+
+    def add_coords(self, coords: PdCoords, after_connections: bool = False) -> Coords:
+        """Append an ``#X coords`` statement no subpatch consumed."""
+        node = Coords(coords)
+        node.after_connections = after_connections
+        self._has_unindexed = True
+        self._register(node)
+        return node
 
     def _index_of(self, node: Node, role: str) -> int:
         """Return *node*'s position in ``self.nodes``.
@@ -3491,20 +3695,27 @@ class Patcher:
     add_link = link
 
     def __str__(self) -> str:
+        preamble = "".join(f"{line};\n" for line in self.preamble)
         canvas = (
             f"#N canvas {self.canvas_x} {self.canvas_y} "
             f"{self.canvas_width} {self.canvas_height} {self.font_size};\n"
         )
-        return f"{canvas}{self._subpatch_str().rstrip()}"
+        return f"{preamble}{canvas}{self._subpatch_str().rstrip()}"
 
     def __repr__(self) -> str:
         return f"Patcher(nodes={len(self.nodes)}, connections={len(self.connections)})"
 
     def _subpatch_str(self) -> str:
-        """Internal: generate string for patch contents."""
-        nodes_str = "".join(str(n) for n in self.nodes)
+        """Internal: generate string for patch contents.
+
+        A statement read from after the ``#X connect`` block goes back there.
+        PureData writes canvas properties such as ``#X coords`` below the
+        connections, and moving one above them changes the file it wrote.
+        """
+        nodes_str = "".join(str(n) for n in self.nodes if not n.after_connections)
         connections_str = "".join(str(c) for c in self.connections)
-        return f"{nodes_str}{connections_str}"
+        trailing_str = "".join(str(n) for n in self.nodes if n.after_connections)
+        return f"{nodes_str}{connections_str}{trailing_str}"
 
     def save(
         self,

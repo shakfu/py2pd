@@ -81,10 +81,10 @@ tree = from_builder(patch)                  # Builder -> AST, to analyse
 | Batch search/replace across `.pd` files | AST |
 
 The Builder models the common subset of the file format. Statements it has no node
-for -- data structure templates, scalars, array data, box widths -- survive in the
-AST but cannot be carried into a `Patcher`; `to_builder()` warns with
-`UnsupportedElementWarning` rather than dropping them silently. Use the AST
-directly when you need to preserve them.
+for -- data structure templates, scalars, array data, box widths, `#X declare` --
+are carried verbatim rather than modelled, so a patch read with `to_builder()`
+writes back byte for byte. Use the AST when you need to read or edit such a
+statement; the Builder will keep it, but gives you no way to inspect it.
 
 ## Further reading
 

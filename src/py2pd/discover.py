@@ -12,7 +12,7 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 from .api import _infer_abstraction_io
-from .ast import PdDeclare, PdElement, PdPatch, PdSubpatch
+from .ast import ParseError, PdDeclare, PdElement, PdPatch, PdSubpatch
 
 # Maps sys.platform prefix to recognized binary extensions for externals
 _EXTERNAL_EXTENSIONS = {
@@ -98,6 +98,7 @@ def discover_externals(
         Mapping of external name to (num_inlets, num_outlets).
         Binary externals have (None, None) since I/O cannot be inferred.
         First-found wins when the same name appears in multiple paths.
+        A ``.pd`` file that cannot be read or parsed is skipped.
     """
     paths: List[str] = []
     if search_paths:
@@ -130,7 +131,9 @@ def discover_externals(
                     try:
                         inlets, outlets = _infer_abstraction_io(full_path)
                         registry[name] = (inlets, outlets)
-                    except OSError:
+                    except (OSError, ParseError):
+                        # An unreadable or unparseable candidate is an unusable
+                        # candidate, not a reason to abandon the whole scan.
                         continue
                 continue
 

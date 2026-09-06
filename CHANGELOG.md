@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **`to_builder()` carries what it does not model instead of warning about it.** A patch read into the builder and written back is now byte-identical: 348 of 348 patches in the PureData 0.56 documentation corpus survive `parse -> to_builder -> from_builder -> serialize` unchanged, against 24 before. `#N struct` preambles, `#X scalar`, `#A` array data, `#X f` box widths, `#X declare` and an `#X coords` no subpatch folded become `Raw`, `Declare` and `Coords` nodes that write themselves back verbatim. `UnsupportedElementWarning` is now issued only for a connection whose endpoint has no builder node at all.
+
+  Two mechanisms make it hold. `Node.occupies_connect_index` separates statements PureData counts as objects from those it does not, and `link()` numbers connections by that count rather than by position in `Patcher.nodes`, so a `#X declare` sits in the node list and shifts nothing. A carried statement also records whether it was read from below the `#X connect` block: PureData writes canvas properties there, and emitting `#X coords` above the connections produces a file PureData would not have written.
+
+  The alternative was to keep dropping them, leaving the AST as the only lossless path, which is what the warning documented. Carrying them costs three opaque node types and leaves the modelled subset unchanged -- the builder still cannot construct or inspect a `struct` -- while making `to_builder()` safe for the editing workflow the README points at it for.
+
+### Added
+
+- `Patcher.preamble` holds the statements above the `#N canvas` line. `Patcher.add_raw()`, `add_declare()` and `add_coords()` append a statement the builder does not model; `Node.occupies_connect_index` and `Node.after_connections` say how it is numbered and where it is written.
+
+- `Subpatch` gained `canvas_x`, `canvas_y`, `canvas_name`, `canvas_font_size`, `open_on_load` and `restore_kind`; `Float` and `Symbol` gained `font_size`; `add_array()` gained `element_type` and `save_flag`. All default to what the writer previously hardcoded.
+
+- `test_corpus.py` asserts the builder round trip changes nothing across the whole corpus, and `TestBuilderRoundTripIsLossless` pins the same property on one fixture carrying every unmodelled statement and every previously hardcoded field, so it runs without a PureData install.
+
+### Fixed
+
+- **The bridge hardcoded fields the builder already modelled.** `from_builder()` wrote `label_pos` as 0 for every `#X floatatom` and dropped the trailing font size from floatatom and symbolatom; every subpatch came back as `#N canvas 0 0 <w> <h> (subpatch) 0`, losing the window position, the subpatch name and the open-on-load flag; `to_builder()` dropped an array's data type and save flag; and a `#X restore` kind other than `pd` or `graph` was rewritten to `pd`. Floatatom alone differed in 117 corpus files.
+
+- **`from_builder()` split object text on whitespace, which eats an escaped trailing space.** `drawnumber dog 0 -15 900 dog\ =\ ` came back as `dog\ =\`, changing the object's last atom. It now uses the parser's tokenizer, which is escape-aware.
+
+- **`transform()` dropped a patch's preamble.** `#N struct` templates parse into `PdPatch.preamble`, not `elements`, and `transform()` rebuilt the patch from `elements` alone. An identity transform therefore deleted every template while leaving the `#X scalar` statements that name them, and PureData cannot resolve a scalar whose template is gone. `rename_sends_receives()` delegates to `transform()`, so renaming a send in a data-structure patch corrupted it.
+
+- **One malformed `.pd` file aborted external discovery.** `discover_externals()` caught `OSError` around abstraction I/O inference but not `ParseError`, so a zero-byte or truncated `.pd` anywhere in a search path raised out of the entire scan, losing every later entry in that directory and every remaining path. `os.listdir` order decides how much was already registered, so the loss presented as an intermittently missing external. An unparseable candidate is now skipped like an unusable one.
+
+- **libpd initialization ran outside the lock that serializes libpd.** `validate_patch()` called `_ensure_libpd()` before acquiring `_libpd_lock`, and that function check-then-sets a module global, so concurrent first-time validations each ran `cypd.init()` and `cypd.init_audio()`. `cypd.init()` documents repeat calls as safe; `init_audio()` does not, and libpd is the process-wide singleton the rest of the module already serializes. Initialization now happens under the lock.
+
 ## [0.2.2]
 
 ### Changed

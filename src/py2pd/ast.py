@@ -782,10 +782,10 @@ class ParseError(Exception):
 class UnsupportedElementWarning(UserWarning):
     """Warning issued when converting to the builder API would lose an element.
 
-    The builder models the common subset of the file format. Statements it has
-    no node for -- data structure templates, scalars, array data, box widths --
-    survive in the AST but cannot be carried into a ``Patcher``. Parse and
-    serialize through :func:`parse` / :func:`serialize` to keep them.
+    Statements the builder does not model -- data structure templates, scalars,
+    array data, box widths -- are carried verbatim by ``Raw``, ``Declare`` and
+    ``Coords`` nodes, so they no longer raise this. It is left for a connection
+    whose endpoint has no builder node at all.
     """
 
     pass
@@ -1512,13 +1512,16 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
         patch.font_size,
     )
     elements: List[PdElement] = []
+    # Carried statements PureData wrote below the #X connect block.
+    trailing: List[PdElement] = []
 
     for node in patch.nodes:
         if isinstance(node, api.Obj):
-            text = node.parameters["text"]
-            parts = text.split(None, 1)
-            class_name = parts[0] if parts else ""
-            args = tuple(parts[1].split()) if len(parts) > 1 else ()
+            # The parser's tokenizer, not str.split(): a plain whitespace split
+            # eats an escaped trailing space, rewriting the object's last atom.
+            tokens = _tokenize(node.parameters["text"])
+            class_name = tokens[0] if tokens else ""
+            args = tuple(tokens[1:])
             pos = Position(node.parameters["x_pos"], node.parameters["y_pos"])
             elements.append(PdObj(pos, class_name, args))
 
@@ -1539,12 +1542,22 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
                     p["width"],
                     p["lower_limit"],
                     p["upper_limit"],
-                    0,
+                    p["label_pos"],
                     p["label"],
                     p["receive"],
                     p["send"],
+                    p["font_size"],
                 )
             )
+
+        elif isinstance(node, (api.Raw, api.Declare, api.Coords)):
+            if isinstance(node, api.Raw):
+                carried: PdElement = PdRaw(node.parameters["text"], node.parameters["is_object"])
+            elif isinstance(node, api.Declare):
+                carried = node.parameters["declare"]
+            else:
+                carried = node.parameters["coords"]
+            (trailing if node.after_connections else elements).append(carried)
 
         elif isinstance(node, api.Array):
             p = node.parameters
@@ -1556,15 +1569,19 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
             p = node.parameters
             pos = Position(p["x_pos"], p["y_pos"])
             subpatch_canvas = CanvasProperties(
-                0, 0, node.canvas_width, node.canvas_height, 10, "(subpatch)", 0
+                p["canvas_x"],
+                p["canvas_y"],
+                node.canvas_width,
+                node.canvas_height,
+                p["canvas_font_size"],
+                p["canvas_name"],
+                p["open_on_load"],
             )
-            restore = (
-                PdRestore(pos, "", "graph")
-                if p.get("is_graph")
-                else PdRestore(pos, p["name"], "pd")
-            )
+            kind = p.get("restore_kind") or ("graph" if p.get("is_graph") else "pd")
+            restore = PdRestore(pos, "" if kind == "graph" else p["name"], kind)
             inner_elements = list(inner_ast.elements)
-            if p["graph_on_parent"]:
+            carries_own_coords = any(isinstance(e, PdCoords) for e in inner_elements)
+            if p["graph_on_parent"] and not carries_own_coords:
                 rect = p.get("gop_rect", (0, 1, 1, 0))
                 margins = p.get("gop_margins", (0, 0))
                 inner_elements.append(
@@ -1641,6 +1658,7 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
                     p["label"],
                     p["receive"],
                     p["send"],
+                    p["font_size"],
                 )
             )
 
@@ -1817,8 +1835,9 @@ def from_builder(patch: "api.Patcher") -> PdPatch:
     # Add connections
     for conn in patch.connections:
         elements.append(PdConnect(conn.source, conn.outlet_index, conn.sink, conn.inlet_index))
+    elements.extend(trailing)
 
-    return PdPatch(canvas, elements)
+    return PdPatch(canvas, elements, [PdRaw(line) for line in patch.preamble])
 
 
 def to_builder(ast: PdPatch) -> "api.Patcher":
@@ -1853,9 +1872,14 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
         font_size=ast.canvas.font_size,
     )
 
+    patch.preamble = [raw.text for raw in ast.preamble]
+
     # First pass: create all nodes (non-connections)
     node_map: List[Optional[api.Node]] = []  # Track nodes for linking
     node: api.Node
+    # PureData writes canvas properties below the #X connect block. A carried
+    # statement remembers which side of it that block it came from.
+    seen_connect = False
     for elem in ast.elements:
         if isinstance(elem, PdObj):
             # elem.text is already in PureData's escaped form; escaping it a
@@ -1881,6 +1905,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                 label=elem.label,
                 receive=elem.receive,
                 send=elem.send,
+                font_size=elem.font_size,
             )
             patch.nodes.append(node)
             node_map.append(node)
@@ -1896,6 +1921,7 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                 label=elem.label,
                 receive=elem.receive,
                 send=elem.send,
+                font_size=elem.font_size,
             )
             patch.nodes.append(node)
             node_map.append(node)
@@ -1906,12 +1932,10 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node_map.append(node)
 
         elif isinstance(elem, PdArray):
-            node = patch.add_array(elem.name, elem.size)
+            node = patch.add_array(elem.name, elem.size, elem.dtype, elem.save_flag)
             node_map.append(node)
 
         elif isinstance(elem, PdSubpatch):
-            # Recursively convert subpatch
-            inner_patch = to_builder(PdPatch(elem.canvas, elem.elements))
             name = elem.restore.name if elem.restore else "subpatch"
             pos = elem.restore.position if elem.restore else Position(0, 0)
             # Extract GOP settings from PdCoords if present
@@ -1934,6 +1958,10 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                         else (sub_elem.x_margin or 0, sub_elem.y_margin or 0)
                     )
                     break
+            # The folded coords stays in the recursion as a carried node: the
+            # writers below regenerate one only when the inner patch has none,
+            # which keeps a parsed coords at the line PureData wrote it on.
+            inner_patch = to_builder(PdPatch(elem.canvas, elem.elements))
             if elem.restore is not None and elem.restore.is_graph:
                 gop_kwargs["is_graph"] = True
             node = patch.add_subpatch(
@@ -1943,6 +1971,12 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
                 y_pos=pos.y,
                 canvas_width=elem.canvas.width,
                 canvas_height=elem.canvas.height,
+                canvas_x=elem.canvas.x,
+                canvas_y=elem.canvas.y,
+                canvas_name=elem.canvas.name if elem.canvas.name is not None else "(subpatch)",
+                canvas_font_size=elem.canvas.font_size,
+                open_on_load=elem.canvas.open_on_load,
+                restore_kind=elem.restore.kind if elem.restore is not None else None,
                 **gop_kwargs,
             )
             node_map.append(node)
@@ -2155,26 +2189,26 @@ def to_builder(ast: PdPatch) -> "api.Patcher":
             node_map.append(node)
 
         elif isinstance(elem, PdRaw):
-            # The builder has no representation for these, so converting drops
-            # them. Say so rather than losing patch content silently; the AST
-            # API round-trips them intact.
-            kind = " ".join(elem.text.split()[:2]) or "?"
-            warnings.warn(
-                f"to_builder() cannot represent {kind!r} statements; "
-                f"dropping: {elem.text[:60]!r}. Use the AST API to preserve them.",
-                UnsupportedElementWarning,
-                stacklevel=2,
-            )
+            # The builder models no such statement, but it must still write back
+            # what it read, so the text is carried verbatim.
+            node = patch.add_raw(elem.text, elem.is_object, after_connections=seen_connect)
             # Only occupy a connect index if Pd counts the statement as an
             # object, otherwise every following index shifts.
             if elem.is_object:
-                node_map.append(None)
+                node_map.append(node)
 
-        elif isinstance(elem, (PdConnect, PdCoords, PdDeclare)):
-            # None of these is an object, so none consumes a connect index.
-            # Connections are handled in the second pass; coords are folded into
-            # the enclosing subpatch; declare has no builder equivalent.
-            pass
+        elif isinstance(elem, PdDeclare):
+            # Not an object, so it consumes no connect index.
+            patch.add_declare(elem, after_connections=seen_connect)
+
+        elif isinstance(elem, PdCoords):
+            # A subpatch strips the coords it folds into its own parameters
+            # before recursing, so anything reaching here belongs to this canvas.
+            patch.add_coords(elem, after_connections=seen_connect)
+
+        elif isinstance(elem, PdConnect):
+            # Not an object, and handled in the second pass.
+            seen_connect = True
 
         else:
             node_map.append(None)  # Placeholder for unknown elements
@@ -2231,7 +2265,7 @@ def transform(patch: PdPatch, transformer: ElementTransformer) -> PdPatch:
         if transformed is not None:
             new_elements.append(transformed)
 
-    return PdPatch(patch.canvas, new_elements)
+    return PdPatch(patch.canvas, new_elements, patch.preamble)
 
 
 def find_objects(patch: PdPatch, predicate: ElementPredicate) -> List[PdElement]:
