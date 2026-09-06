@@ -8,69 +8,22 @@ time with "connection failed".
 Skipped when no ``pd`` binary is found. Set ``PD_BIN`` to point at one.
 """
 
-import glob
 import os
-import shutil
-import subprocess
 
 import pytest
 
 from py2pd import Patcher, parse, to_builder
 from py2pd.ast import serialize
+from tests.gui_params import GUI_METHODS, kwargs_for
+from tests.pd_runner import PD_BIN, SKIP_REASON, run_in_pd
 
-_CANDIDATE_GLOBS = (
-    "/Applications/Pd*.app/Contents/Resources/bin/pd",
-    "/Applications/*/Pd*.app/Contents/Resources/bin/pd",
-)
-
-
-def _find_pd() -> str | None:
-    override = os.environ.get("PD_BIN")
-    if override:
-        return override if os.path.isfile(override) else None
-    found = shutil.which("pd")
-    if found:
-        return found
-    for pattern in _CANDIDATE_GLOBS:
-        matches = sorted(glob.glob(pattern))
-        if matches:
-            return matches[0]
-    return None
-
-
-PD_BIN = _find_pd()
-
-pytestmark = pytest.mark.skipif(
-    PD_BIN is None, reason="no PureData binary found; set PD_BIN to run these"
-)
-
-
-def load_in_pd(path: str) -> str:
-    """Open *path* in PureData and return whatever it wrote to the console."""
-    assert PD_BIN is not None
-    proc = subprocess.run(
-        [
-            PD_BIN,
-            "-nogui",
-            "-noaudio",
-            "-stderr",
-            "-open",
-            os.path.basename(path),
-            "-send",
-            "pd quit",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=os.path.dirname(path),
-        timeout=60,
-    )
-    return (proc.stdout + proc.stderr).strip()
+pytestmark = pytest.mark.skipif(PD_BIN is None, reason=SKIP_REASON)
 
 
 def assert_loads_cleanly(patch: Patcher, tmp_path, name: str) -> None:
     target = tmp_path / name
     patch.save(str(target))
-    output = load_in_pd(str(target))
+    output = run_in_pd(str(target))
     assert output == "", f"PureData rejected {name}:\n{output}\n\n{target.read_text()}"
 
 
@@ -95,18 +48,20 @@ class TestGeneratedPatchesLoad:
 
     def test_every_gui_type(self, tmp_path):
         p = Patcher()
-        p.add_bang()
-        p.add_toggle()
-        p.add_numberbox()
-        p.add_float()
-        p.add_symbol()
-        p.add_hslider()
-        p.add_vslider()
-        p.add_hradio()
-        p.add_vradio()
-        p.add_canvas()
-        p.add_vu()
+        for method in GUI_METHODS:
+            getattr(p, method)()
         assert_loads_cleanly(p, tmp_path, "guis.pd")
+
+    @pytest.mark.parametrize("method", GUI_METHODS)
+    def test_every_gui_parameter(self, method, tmp_path):
+        """Each GUI type with every parameter set, opened in PureData.
+
+        Serializing correctly is not the same as writing a statement PureData
+        accepts: a field that lands in the wrong slot still serializes.
+        """
+        p = Patcher()
+        getattr(p, method)(**kwargs_for(method))
+        assert_loads_cleanly(p, tmp_path, f"{method}.pd")
 
     def test_comment_with_separators(self, tmp_path):
         """An unescaped semicolon in a comment would split the statement."""
@@ -123,6 +78,29 @@ class TestGeneratedPatchesLoad:
         p = Patcher()
         p.add_subpatch("controls", inner, graph_on_parent=True, hide_name=True, gop_width=150)
         assert_loads_cleanly(p, tmp_path, "gop.pd")
+
+    def test_array_in_a_graph_canvas(self, tmp_path):
+        p = Patcher()
+        p.add_array("wavetable", 64)
+        assert_loads_cleanly(p, tmp_path, "array.pd")
+
+    def test_message_with_separators(self, tmp_path):
+        """An escaped comma must stay one atom separator, not become two."""
+        p = Patcher()
+        p.add_msg("0, 1 10")
+        p.add_msg("1; note 440 0.8")
+        assert_loads_cleanly(p, tmp_path, "msgs.pd")
+
+    def test_abstraction_resolves_against_a_real_file(self, tmp_path):
+        """add_abstraction writes a bare object; PureData must find the file."""
+        (tmp_path / "myabs.pd").write_text(
+            "#N canvas 0 50 450 300 12;\n#X obj 25 25 inlet;\n#X obj 25 75 outlet;\n"
+            "#X connect 0 0 1 0;\n",
+            encoding="utf-8",
+        )
+        p = Patcher()
+        p.add_abstraction("myabs", num_inlets=1, num_outlets=1)
+        assert_loads_cleanly(p, tmp_path, "usesabs.pd")
 
     def test_graph_canvas_with_array(self, tmp_path):
         inner = Patcher()
@@ -144,7 +122,7 @@ class TestRoundTrippedPatchesLoad:
             ast = parse(handle.read())
         target = tmp_path / "reserialized.pd"
         target.write_text(serialize(ast) + "\n", encoding="utf-8")
-        assert load_in_pd(str(target)) == ""
+        assert run_in_pd(str(target)) == ""
 
     def test_pd_authored_fixture_through_the_builder(self, tmp_path):
         source = os.path.join(os.path.dirname(__file__), "examples", "pd_authored.pd")

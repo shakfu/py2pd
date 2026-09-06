@@ -155,6 +155,8 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 
 ## Bug Fixes / Correctness
 
+- [x] Subpatch I/O order is positional, not creation order -- `add_subpatch()` spreads auto-positioned `inlet`/`outlet` objects so creation order is authoritative, and warns when explicit positions collide
+
 - [x] `rename_sends_receives()` ignores all GUI types -- only handles `PdFloatAtom` and `PdObj`; all 10 IEM GUI types (`PdBng`, `PdTgl`, `PdNbx`, `PdVsl`, `PdHsl`, `PdVradio`, `PdHradio`, `PdCnv`, `PdVu`) and `PdSymbolAtom` have send/receive fields that are silently left unchanged
 - [x] `to_builder()` truncates float bounds on `PdFloatAtom` -- `int(elem.upper_limit)` / `int(elem.lower_limit)` loses precision; builder `Float` class should accept `float` limits to match AST
 - [x] `optimize()` dead stats code -- lines 3310-3312 compute `connections_removed` but are immediately overwritten by line 3317 after `_remap_after_removal`
@@ -171,7 +173,7 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - [x] Graph-on-parent support
 - [x] Abstractions (external .pd file references)
 - [x] Externals discovery
-- [ ] Pd-extended / Purr Data compatibility
+- ~~Pd-extended / Purr Data compatibility~~ (won't do: Pd-extended was discontinued in 2014. For Purr Data, point `PD_DOC_DIR` at an installation and run `test_corpus.py` -- that answers the only testable form of the question)
 - [x] libpd integration for patch validation
 - [x] hvcc (Heavy Compiler Collection) integration
 - [x] Patch optimization (unused element removal, connection simplification)
@@ -213,3 +215,5 @@ Currently all Pd objects are created via generic `add('osc~ 440')`. Consider add
 - ~~Consider renaming `Float`/`add_float()` to `FloatAtom`/`add_float_atom()` for clarity~~ (won't do: asymmetry is consistent with all other GUI types)
 - [x] Add integration test that runs `example.py` and validates output
 - [x] Convert `example.py` to pytest with output validation
+- [x] Runtime harness: patches driven by `loadbang` with assertions on the PureData console, pinning subpatch I/O order (`tests/test_pd_runs.py`)
+- [x] Writer matrix: every `add_*` method checked against parsed field values, byte round-trip, and a PureData load; a coverage test fails if a new method joins neither list (`tests/gui_params.py`)

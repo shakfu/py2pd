@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.2]
+
+### Changed
+
+- `add_subpatch()` spreads a subpatch's `inlet` and `outlet` objects horizontally so `link(..., inlet=n)` reaches the n-th one created.
+
+  PureData derives subpatch I/O order from the x position of those objects and breaks a tie in reverse file order. The default layout stacks every node at one x, so a five-inlet subpatch was wired backwards: a bang sent to inlet 0 arrived at the inlet created last. The patch loaded without complaint, so only running it showed the fault.
+
+  Only a tie is repaired, and only among objects the caller never positioned. Distinct positions already give an unambiguous order, and an explicit `x_pos` is a decision to respect -- colliding explicit positions warn (`SubpatchIOOrderWarning`) instead of being moved. Subpatches that relied on the old reversed order need their `inlet=` indices flipped.
+
+### Added
+
+- `tests/test_pd_runs.py` drives generated patches with `loadbang` and asserts on the PureData console, rather than only asking whether they load. Banging one subpatch inlet and naming the `print` object that must answer pins the I/O ordering contract, which py2pd cannot check on its own. Ten tests, about a second. `tests/pd_runner.py` holds the binary discovery the load and run tests share.
+
+  Loading is a weaker property than it looks: a subpatch wired in reverse loads in silence, because every connection index is valid and only the meaning is wrong. Removing the ordering fix leaves the round-trip, field-value and load matrices green and fails five of these.
+
+- A writer matrix covering every `add_*` method. The eleven GUI methods are driven with every parameter set to a distinctive value, in three layers: the parsed fields must equal the values asked for, the statement must re-serialize byte-identically, and PureData must open it with a silent console. A table in `tests/gui_params.py` holds one value per parameter name, and a test fails if a new parameter has no entry, so the matrices cannot silently stop covering a field.
+
+  `add_msg`, `add_comment`, `add_array`, `add_abstraction` and `add_subpatch` write shapes rather than a flat field list, so each is asserted explicitly: message and comment escaping, array name and size, the abstraction's object name, and a subpatch's canvas geometry, restore kind and `#X coords` line. A coverage test fails if any `add_*` method belongs to neither matrix.
+
+  The field-value layer is the one that catches a swap. A byte round-trip is blind to a swap of two same-typed fields -- writing `upper lower` parses back as `lower=upper` and re-serializes identically, so the writer and the parser agree with each other while both disagree with PureData. Reintroducing the 0.2.1 floatatom defect passes the round-trip check and fails the field check.
+
+### Fixed
+
+- **The `synth_with_envelope` example errored when triggered.** A bang meant for the trigger reached a `pack` cold inlet, giving `inlet: expected 'float' but got 'bang'` -- the subpatch inlet ordering described above. The example needed no change once `add_subpatch()` was fixed.
+
+  A second fault was independent of the ordering: `t b b` banged a message box containing `$1`, which errors with `$1: argument number out of range` because `$1` refers to the incoming message rather than to stored state. The trigger now bangs `pack`'s hot inlet, which emits the stored parameters into the message box.
+
+- **The builder wrote float values verbatim where PureData trims them**, so `add_float(upper_limit=127.0)` produced `#X floatatom 25 25 5 0.0 127.0 0 - - -` against PureData's `... 0 127 ...`. Same for `nbx`, `vsl` and `hsl` ranges and init values. PureData loads both, but the difference broke the byte-identical round-trip the AST layer maintains. The builder now uses the AST's `_fmt_num`, and the near-duplicate `_fmt_coord` in `api.py` is gone.
+
 ## [0.2.1]
 
 ### Changed

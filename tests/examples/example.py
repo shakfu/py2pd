@@ -99,7 +99,8 @@ def envelope_subpatch() -> Patcher:
     """An ADSR envelope generator as a reusable subpatch."""
     p = Patcher()
 
-    # Inlets for parameters
+    # Inlets for parameters. add_subpatch() spreads these horizontally so
+    # PureData orders them by creation: inlet 0 is the trigger.
     inlet_trig = p.add("inlet")  # trigger
     inlet_attack = p.add("inlet")  # attack time ms
     inlet_decay = p.add("inlet")  # decay time ms
@@ -123,7 +124,10 @@ def envelope_subpatch() -> Patcher:
     p.add_msg("$3 $2")
     p.add_msg("0 $4")
 
-    p.link(trigger, msg_attack, outlet=0)
+    # The trigger bangs pack's hot inlet so it emits the stored parameters;
+    # banging the message box directly would leave $1 unset ("argument number
+    # out of range"), since $1 refers to the incoming message, not to state.
+    p.link(trigger, pack, outlet=0, inlet=0)
     p.link(pack, msg_attack, inlet=0)
     p.link(msg_attack, adsr)
 

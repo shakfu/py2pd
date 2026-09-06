@@ -16,15 +16,27 @@ import pytest
 
 from py2pd import Patcher, parse, parse_file, to_builder
 from py2pd.ast import (
+    PdArray,
     PdCoords,
     PdFloatAtom,
+    PdMsg,
     PdObj,
     PdRaw,
     PdSubpatch,
+    PdText,
     PdTgl,
     PdVsl,
     UnsupportedElementWarning,
     serialize,
+)
+from tests.gui_params import (
+    GUI_METHODS,
+    NON_GUI_METHODS,
+    PARAM_VALUES,
+    all_add_methods,
+    ast_node_for,
+    gui_parameters,
+    kwargs_for,
 )
 
 FIXTURE = Path(__file__).parent / "examples" / "pd_authored.pd"
@@ -392,20 +404,45 @@ class TestBuilderOutputRoundTrips:
         p.add_msg("1; note 440 0.8")
         self.assert_stable(p)
 
-    def test_every_gui_type(self):
+    def test_every_gui_type_at_defaults(self):
         p = Patcher()
-        p.add_bang()
-        p.add_toggle()
-        p.add_numberbox()
-        p.add_float()
-        p.add_symbol()
-        p.add_hslider()
-        p.add_vslider()
-        p.add_hradio()
-        p.add_vradio()
-        p.add_canvas()
-        p.add_vu()
+        for method in GUI_METHODS:
+            getattr(p, method)()
         self.assert_stable(p)
+
+    @pytest.mark.parametrize("method", GUI_METHODS)
+    def test_every_gui_parameter(self, method):
+        """Each GUI type with every parameter set to a distinctive value.
+
+        Defaults alone are not enough: two adjacent fields that both default to
+        0 round-trip whichever order they are written in.
+        """
+        p = Patcher()
+        getattr(p, method)(**kwargs_for(method))
+        self.assert_stable(p)
+
+    @pytest.mark.parametrize("method", GUI_METHODS)
+    def test_every_gui_parameter_survives_the_writer(self, method):
+        """Every parameter must parse back as the value it was given.
+
+        The byte round-trip above cannot see this. Two fields of the same type
+        written in the wrong order serialize identically, so the writer and the
+        parser agree with each other while both disagree with PureData. Only
+        checking the parsed field values catches a swap or an omitted field.
+        """
+        p = Patcher()
+        requested = kwargs_for(method)
+        getattr(p, method)(**requested)
+        node = parse(str(p)).elements[0]
+        assert isinstance(node, ast_node_for(method))
+        for name, value in requested.items():
+            assert getattr(node, name) == value, f"{method}: {name} came back wrong"
+
+    def test_every_gui_parameter_has_a_value(self):
+        """A new GUI parameter must be added to PARAM_VALUES to be covered."""
+        for method in GUI_METHODS:
+            for name in gui_parameters(method):
+                assert name in PARAM_VALUES, f"{method}({name}=...) is not covered"
 
     def test_signal_chain_with_subpatch(self):
         inner = Patcher()
@@ -414,3 +451,118 @@ class TestBuilderOutputRoundTrips:
         p.add_subpatch("passthrough", inner)
         p.add_comment("gain stage; adjust, carefully")
         self.assert_stable(p)
+
+
+class TestBuilderStructureSurvivesTheWriter:
+    """The non-GUI builder methods, checked the same way as the GUI matrix.
+
+    These write shapes rather than a flat field list -- a subpatch is a nested
+    canvas plus a restore line, an array is a single statement -- so each is
+    asserted explicitly instead of through a parameter table. The property is
+    the same: what the parser reads back must be what the caller asked for.
+    """
+
+    @staticmethod
+    def only_element(patch: Patcher):
+        elements = parse(str(patch)).elements
+        assert len(elements) == 1, f"expected one element, got {elements}"
+        return elements[0]
+
+    def test_message_content(self):
+        p = Patcher()
+        p.add_msg("0, 1 10")
+        node = self.only_element(p)
+        assert isinstance(node, PdMsg)
+        # One space after the separator, and the comma is escaped, not dropped.
+        assert node.content == r"0 \, 1 10"
+
+    def test_message_already_escaped_is_not_escaped_again(self):
+        p = Patcher()
+        p.add_msg(r"0 \, 1 \$1", escaped=True)
+        assert self.only_element(p).content == r"0 \, 1 \$1"
+
+    def test_comment_content(self):
+        p = Patcher()
+        p.add_comment("gain stage; adjust, carefully")
+        node = self.only_element(p)
+        assert isinstance(node, PdText)
+        assert node.content == r"gain stage \; adjust \, carefully"
+
+    def test_comment_already_escaped_is_not_escaped_again(self):
+        p = Patcher()
+        p.add_comment(r"a \; b", escaped=True)
+        assert self.only_element(p).content == r"a \; b"
+
+    def test_array_name_and_size(self):
+        p = Patcher()
+        p.add_array("wavetable", 64)
+        node = self.only_element(p)
+        assert isinstance(node, PdArray)
+        assert (node.name, node.size) == ("wavetable", 64)
+
+    def test_abstraction_writes_its_name_as_the_object(self):
+        p = Patcher()
+        node = p.add_abstraction("myabs", num_inlets=2, num_outlets=3)
+        parsed = self.only_element(p)
+        assert isinstance(parsed, PdObj)
+        assert parsed.class_name == "myabs"
+        assert parsed.args == ()
+        # Arity is builder-side metadata; PureData infers it from the file.
+        assert (node.num_inlets, node.num_outlets) == (2, 3)
+
+    def test_subpatch_canvas_and_restore(self):
+        inner = Patcher()
+        inner.link(inner.add("inlet~"), inner.add("outlet~"))
+        p = Patcher()
+        p.add_subpatch("voice", inner, canvas_width=321, canvas_height=177)
+        node = self.only_element(p)
+        assert isinstance(node, PdSubpatch)
+        assert (node.canvas.width, node.canvas.height) == (321, 177)
+        assert (node.restore.name, node.restore.kind) == ("voice", "pd")
+        objects = [e for e in node.elements if isinstance(e, PdObj)]
+        assert [o.class_name for o in objects] == ["inlet~", "outlet~"]
+
+    def test_subpatch_graph_on_parent_coords(self):
+        inner = Patcher()
+        inner.add_hslider()
+        p = Patcher()
+        p.add_subpatch(
+            "controls",
+            inner,
+            graph_on_parent=True,
+            hide_name=True,
+            gop_width=151,
+            gop_height=63,
+            gop_rect=(0, 1, 1, 0),
+            gop_margins=(7, 9),
+        )
+        node = self.only_element(p)
+        coords = [e for e in node.elements if isinstance(e, PdCoords)]
+        assert len(coords) == 1, "graph_on_parent must write exactly one #X coords"
+        c = coords[0]
+        assert (c.x_from, c.y_from, c.x_to, c.y_to) == (0, 1, 1, 0)
+        assert (c.width, c.height) == (151, 63)
+        # hide_name is encoded in the flag itself: 2 rather than 1.
+        assert c.hide_name is True
+        assert (c.x_margin, c.y_margin) == (7, 9)
+
+    def test_subpatch_without_graph_on_parent_writes_no_coords(self):
+        inner = Patcher()
+        inner.add_hslider()
+        p = Patcher()
+        p.add_subpatch("controls", inner)
+        node = self.only_element(p)
+        assert not [e for e in node.elements if isinstance(e, PdCoords)]
+
+    def test_graph_canvas_restore_kind(self):
+        inner = Patcher()
+        inner.add_array("wt", 32)
+        p = Patcher()
+        p.add_subpatch("wt", inner, is_graph=True)
+        node = self.only_element(p)
+        assert (node.restore.kind, node.restore.name) == ("graph", "")
+
+    def test_every_builder_method_is_covered_by_a_matrix(self):
+        """A new add_* method must join one of the two lists to be tested."""
+        uncovered = set(all_add_methods()) - set(GUI_METHODS) - set(NON_GUI_METHODS)
+        assert not uncovered, f"add_* methods with no writer test: {sorted(uncovered)}"

@@ -4,6 +4,10 @@ import re
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple, Union
 import warnings
 
+# The builder writes the same number format as the AST serializer, so it uses
+# the same helper. ast imports api only lazily, so this direction does not cycle.
+from .ast import _fmt_num
+
 # Layout constants (pixels)
 ROW_HEIGHT = 25
 COLUMN_WIDTH = 50
@@ -53,6 +57,12 @@ class CycleWarning(UserWarning):
     pass
 
 
+class SubpatchIOOrderWarning(UserWarning):
+    """A subpatch's inlet or outlet order will not match creation order."""
+
+    pass
+
+
 class PdConnectionWarning(UserWarning):
     """Warning raised for an out-of-range connection when validation is advisory.
 
@@ -64,11 +74,65 @@ class PdConnectionWarning(UserWarning):
     pass
 
 
-def _fmt_coord(value: float) -> str:
-    """Format a coordinate the way PureData writes it -- integral values as integers."""
-    if isinstance(value, int) or float(value).is_integer():
-        return str(int(value))
-    return repr(float(value))
+_IO_KINDS = (("inlet", ("inlet", "inlet~")), ("outlet", ("outlet", "outlet~")))
+
+
+def _subpatch_io_nodes(src: "Patcher", names: Tuple[str, str]) -> List["Obj"]:
+    """The inlet or outlet objects of *src*, in creation order."""
+    return [
+        n
+        for n in src.nodes
+        if isinstance(n, Obj) and n.parameters["text"].split()[:1] in ([names[0]], [names[1]])
+    ]
+
+
+def _order_subpatch_io(src: "Patcher") -> None:
+    """Spread a subpatch's inlet and outlet objects so PureData orders them by creation.
+
+    PureData derives a subpatch's inlet and outlet order from the x position of
+    the ``inlet`` / ``outlet`` objects, breaking a tie in reverse file order.
+    The default layout stacks every node at one x, so two inlets created in
+    order reach the parent reversed -- a patch that loads without complaint and
+    is wired backwards.
+
+    Only a tie is repaired, and only among objects the caller never positioned:
+    distinct positions already give an unambiguous order, and an explicit
+    ``x_pos`` is a decision to respect. Repositioning is by creation order, so
+    ``link(..., inlet=n)`` means the n-th ``inlet`` object created.
+    """
+    for _, names in _IO_KINDS:
+        nodes = _subpatch_io_nodes(src, names)
+        if len(nodes) < 2:
+            continue
+        xs = [n.parameters["x_pos"] for n in nodes]
+        if len(set(xs)) == len(xs):
+            continue  # already unambiguous
+        if any(id(n) in src._explicit_x for n in nodes):
+            continue  # the caller placed at least one; leave the layout alone
+        base = min(xs)
+        for i, node in enumerate(nodes):
+            node.parameters["x_pos"] = base + i * SUBPATCH_IO_SPACING
+
+
+def _warn_on_ambiguous_subpatch_io(src: "Patcher", name: str) -> None:
+    """Warn when a subpatch's inlet or outlet order will not match creation order.
+
+    PureData orders a subpatch's inlets and outlets by the x position of the
+    ``inlet`` / ``outlet`` objects inside it, and breaks a tie in reverse file
+    order. The default layout stacks every node at the same x, so two inlets
+    created in order arrive at the parent reversed -- a patch that loads
+    without complaint and is wired wrong.
+    """
+    for kind, names in _IO_KINDS:
+        xs = [n.parameters["x_pos"] for n in _subpatch_io_nodes(src, names)]
+        if len(xs) > 1 and len(set(xs)) != len(xs):
+            warnings.warn(
+                f"subpatch {name!r} has {len(xs)} {kind}s sharing an x position; "
+                f"PureData orders them by x and will not use creation order. "
+                f"Give each {kind} a distinct x_pos to fix the order.",
+                SubpatchIOOrderWarning,
+                stacklevel=3,
+            )
 
 
 def escape(text: str) -> str:
@@ -418,7 +482,7 @@ class Float(Node):
         p = self.parameters
         return (
             f"#X floatatom {p['x_pos']} {p['y_pos']} {p['width']} "
-            f"{p['lower_limit']} {p['upper_limit']} {p['label_pos']} "
+            f"{_fmt_num(p['lower_limit'])} {_fmt_num(p['upper_limit'])} {p['label_pos']} "
             f"{p['label']} {p['receive']} {p['send']};\n"
         )
 
@@ -469,6 +533,9 @@ class Comment(Node):
 
 
 # Default subpatch canvas dimensions (pixels)
+# Horizontal gap applied when spreading a subpatch's inlet/outlet objects so
+# PureData orders them by creation rather than by an arbitrary tie-break.
+SUBPATCH_IO_SPACING = 70
 SUBPATCH_CANVAS_WIDTH = 300
 SUBPATCH_CANVAS_HEIGHT = 180
 
@@ -613,7 +680,7 @@ class Subpatch(Node):
             # separate field, and the two values after the flag are the
             # viewport margins.
             gop_flag = 2 if p["hide_name"] else 1
-            rect = " ".join(_fmt_coord(v) for v in p.get("gop_rect", (0, 1, 1, 0)))
+            rect = " ".join(_fmt_num(v) for v in p.get("gop_rect", (0, 1, 1, 0)))
             margins = p.get("gop_margins", (0, 0))
             tail = "" if margins is None else f" {margins[0]} {margins[1]}"
             coords_line = f"#X coords {rect} {p['gop_width']} {p['gop_height']} {gop_flag}{tail};\n"
@@ -995,7 +1062,7 @@ class Symbol(Node):
         p = self.parameters
         return (
             f"#X symbolatom {p['x_pos']} {p['y_pos']} {p['width']} "
-            f"{p['lower_limit']} {p['upper_limit']} {p['label_pos']} "
+            f"{_fmt_num(p['lower_limit'])} {_fmt_num(p['upper_limit'])} {p['label_pos']} "
             f"{p['label']} {p['receive']} {p['send']};\n"
         )
 
@@ -1073,11 +1140,11 @@ class NumberBox(Node):
         p = self.parameters
         return (
             f"#X obj {p['x_pos']} {p['y_pos']} nbx {p['width']} {p['height']} "
-            f"{p['min_val']} {p['max_val']} {p['log_flag']} {p['init']} "
+            f"{_fmt_num(p['min_val'])} {_fmt_num(p['max_val'])} {p['log_flag']} {p['init']} "
             f"{p['send']} {p['receive']} {p['label']} "
             f"{p['label_x']} {p['label_y']} {p['font']} {p['font_size']} "
             f"{p['bg_color']} {p['fg_color']} {p['label_color']} "
-            f"{p['init_value']} {p['log_height']};\n"
+            f"{_fmt_num(p['init_value'])} {p['log_height']};\n"
         )
 
     @property
@@ -1151,11 +1218,11 @@ class VSlider(Node):
         p = self.parameters
         return (
             f"#X obj {p['x_pos']} {p['y_pos']} vsl {p['width']} {p['height']} "
-            f"{p['min_val']} {p['max_val']} {p['log_flag']} {p['init']} "
+            f"{_fmt_num(p['min_val'])} {_fmt_num(p['max_val'])} {p['log_flag']} {p['init']} "
             f"{p['send']} {p['receive']} {p['label']} "
             f"{p['label_x']} {p['label_y']} {p['font']} {p['font_size']} "
             f"{p['bg_color']} {p['fg_color']} {p['label_color']} "
-            f"{p['init_value']} {p['steady']};\n"
+            f"{_fmt_num(p['init_value'])} {p['steady']};\n"
         )
 
     @property
@@ -1226,11 +1293,11 @@ class HSlider(Node):
         p = self.parameters
         return (
             f"#X obj {p['x_pos']} {p['y_pos']} hsl {p['width']} {p['height']} "
-            f"{p['min_val']} {p['max_val']} {p['log_flag']} {p['init']} "
+            f"{_fmt_num(p['min_val'])} {_fmt_num(p['max_val'])} {p['log_flag']} {p['init']} "
             f"{p['send']} {p['receive']} {p['label']} "
             f"{p['label_x']} {p['label_y']} {p['font']} {p['font_size']} "
             f"{p['bg_color']} {p['fg_color']} {p['label_color']} "
-            f"{p['init_value']} {p['steady']};\n"
+            f"{_fmt_num(p['init_value'])} {p['steady']};\n"
         )
 
     @property
@@ -2213,6 +2280,9 @@ class Patcher:
         self.canvas_height = canvas_height
         self.font_size = font_size
         self._node_positions: Dict[int, int] = {}
+        # Nodes whose x the caller set. Subpatch I/O ordering may reposition
+        # the others; it must never move one the caller placed.
+        self._explicit_x: Set[int] = set()
 
     @property
     def row_head(self) -> Optional[Node]:
@@ -2258,10 +2328,13 @@ class Patcher:
     ) -> Tuple[int, int, Callable[[Node], None]]:
         """Resolve position for a new element."""
         was_absolute = x_pos >= 0 and y_pos >= 0
+        x_was_given = x_pos >= 0
         computed_x, computed_y = self.layout.compute_position(new_row, new_col, x_pos, y_pos)
 
         def position_update(node: Node) -> None:
             self.layout.register_node(node, new_row, new_col, was_absolute)
+            if x_was_given:
+                self._explicit_x.add(id(node))
 
         return (computed_x, computed_y, position_update)
 
@@ -2575,6 +2648,9 @@ class Patcher:
                 if isinstance(n, Obj)
                 and n.parameters["text"].split()[:1] in (["outlet"], ["outlet~"])
             )
+
+        _order_subpatch_io(src)
+        _warn_on_ambiguous_subpatch_io(src, name)
 
         x_pos, y_pos, pos_update = self._resolve_position(x_pos, y_pos, new_row, new_col)
         node = Subpatch(

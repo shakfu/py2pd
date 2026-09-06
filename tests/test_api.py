@@ -13,6 +13,7 @@ from py2pd import (
     Patcher,
     PdConnectionError,
     PdConnectionWarning,
+    SubpatchIOOrderWarning,
 )
 from py2pd.api import (
     _PROTECTED_TYPES,
@@ -2063,12 +2064,14 @@ class TestSubpatchAutoInference:
         assert sp.num_outlets == 1
 
     def test_infer_multiple_inlets_outlets(self):
+        # Distinct x positions: PureData orders subpatch I/O by x, so a fixture
+        # that stacked these would describe a patch wired in reverse.
         inner = Patcher()
-        inner.add("inlet")
-        inner.add("inlet~")
-        inner.add("outlet")
-        inner.add("outlet~")
-        inner.add("outlet")
+        inner.add("inlet", x_pos=25, y_pos=25)
+        inner.add("inlet~", x_pos=95, y_pos=25)
+        inner.add("outlet", x_pos=25, y_pos=100)
+        inner.add("outlet~", x_pos=95, y_pos=100)
+        inner.add("outlet", x_pos=165, y_pos=100)
         patch = Patcher()
         sp = patch.add_subpatch("test", inner)
         assert sp.num_inlets == 2
@@ -3395,3 +3398,123 @@ class TestPdClassName:
 
     def test_empty_object_text_reports_none(self):
         assert Patcher().add("").pd_class_name is None
+
+
+class TestSubpatchIOOrdering:
+    """PureData orders subpatch inlets and outlets by x, not by creation order.
+
+    Ties break in reverse file order, so the default layout -- every node at
+    one x -- reversed them. ``add_subpatch()`` spreads the ones the caller did
+    not position, making ``link(..., inlet=n)`` mean the n-th created.
+    """
+
+    @staticmethod
+    def io_x(patch, name):
+        return [
+            n.parameters["x_pos"]
+            for n in patch.nodes
+            if isinstance(n, Obj) and n.parameters["text"].split()[:1] == [name]
+        ]
+
+    def test_stacked_inlets_are_spread_in_creation_order(self):
+        inner = Patcher()
+        for _ in range(3):
+            inner.add("inlet")
+        Patcher().add_subpatch("env", inner)
+        xs = self.io_x(inner, "inlet")
+        assert xs == sorted(xs) and len(set(xs)) == 3
+
+    def test_outlets_are_spread_too(self):
+        inner = Patcher()
+        for _ in range(3):
+            inner.add("outlet")
+        Patcher().add_subpatch("env", inner)
+        xs = self.io_x(inner, "outlet")
+        assert xs == sorted(xs) and len(set(xs)) == 3
+
+    def test_signal_and_control_inlets_share_one_ordering(self):
+        inner = Patcher()
+        inner.add("inlet~")
+        inner.add("inlet")
+        Patcher().add_subpatch("env", inner)
+        xs = self.io_x(inner, "inlet~") + self.io_x(inner, "inlet")
+        assert len(set(xs)) == 2
+
+    def test_spreading_is_idempotent(self):
+        inner = Patcher()
+        for _ in range(3):
+            inner.add("inlet")
+        Patcher().add_subpatch("a", inner)
+        once = self.io_x(inner, "inlet")
+        Patcher().add_subpatch("b", inner)
+        assert self.io_x(inner, "inlet") == once
+
+    def test_explicit_positions_are_left_alone(self):
+        """An explicit x_pos is a decision; the builder must not override it."""
+        inner = Patcher()
+        for i in range(3):
+            inner.add("inlet", x_pos=200 - 70 * i, y_pos=25)
+        Patcher().add_subpatch("env", inner)
+        assert self.io_x(inner, "inlet") == [200, 130, 60]
+
+    def test_distinct_auto_positions_are_left_alone(self):
+        """Already unambiguous, so a column layout survives untouched."""
+        inner = Patcher()
+        for i in range(3):
+            inner.add("inlet", new_row=0, new_col=1 if i else 0)
+        before = self.io_x(inner, "inlet")
+        assert len(set(before)) == 3, "precondition: layout gave distinct x"
+        Patcher().add_subpatch("env", inner)
+        assert self.io_x(inner, "inlet") == before
+
+    def test_a_single_inlet_is_untouched(self):
+        inner = Patcher()
+        inner.add("inlet")
+        before = self.io_x(inner, "inlet")
+        Patcher().add_subpatch("env", inner)
+        assert self.io_x(inner, "inlet") == before
+
+
+class TestSubpatchIOOrderWarning:
+    """Explicitly positioned I/O that collides is the caller's to resolve."""
+
+    def test_warns_when_explicit_positions_collide(self):
+        inner = Patcher()
+        for _ in range(3):
+            inner.add("inlet", x_pos=50, y_pos=25)
+        p = Patcher()
+        with pytest.warns(SubpatchIOOrderWarning, match="3 inlets sharing an x position"):
+            p.add_subpatch("env", inner)
+
+    def test_warns_for_outlets_too(self):
+        inner = Patcher()
+        for _ in range(2):
+            inner.add("outlet", x_pos=50, y_pos=25)
+        p = Patcher()
+        with pytest.warns(SubpatchIOOrderWarning, match="2 outlets"):
+            p.add_subpatch("env", inner)
+
+    def test_colliding_positions_are_not_moved(self):
+        inner = Patcher()
+        for _ in range(3):
+            inner.add("inlet", x_pos=50, y_pos=25)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            Patcher().add_subpatch("env", inner)
+        assert [n.parameters["x_pos"] for n in inner.nodes] == [50, 50, 50]
+
+    def test_auto_positioned_inlets_are_fixed_not_warned(self):
+        inner = Patcher()
+        for _ in range(3):
+            inner.add("inlet")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Patcher().add_subpatch("env", inner)
+
+    def test_a_single_inlet_does_not_warn(self):
+        inner = Patcher()
+        inner.add("inlet")
+        inner.add("outlet")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            Patcher().add_subpatch("env", inner)

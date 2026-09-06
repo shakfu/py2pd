@@ -23,7 +23,7 @@ from example import OUTPUT_DIR  # noqa: E402  # sibling module, same directory
 
 from py2pd import parse  # noqa: E402
 from py2pd.ast import serialize  # noqa: E402
-from tests.test_pd_loads import PD_BIN, load_in_pd  # noqa: E402
+from tests.pd_runner import PD_BIN, run_in_pd  # noqa: E402
 
 
 def check_roundtrip(path: Path) -> str:
@@ -59,7 +59,7 @@ def main() -> int:
         if PD_BIN is None:
             print(f"  ok (round-trip) {path.name}")
             continue
-        output = load_in_pd(str(path))
+        output = run_in_pd(str(path))
         if output:
             print(f"FAIL PureData rejected {path.name}\n{output}", file=sys.stderr)
             failures += 1

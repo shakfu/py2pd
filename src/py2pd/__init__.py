@@ -36,6 +36,7 @@ from .api import (
     Patcher,
     PdConnectionError,
     PdConnectionWarning,
+    SubpatchIOOrderWarning,
     lookup_object_io,
 )
 from .ast import (
@@ -66,6 +67,7 @@ __all__ = [
     "InvalidConnectionError",
     "CycleWarning",
     "PdConnectionWarning",
+    "SubpatchIOOrderWarning",
     "UnsupportedElementWarning",
     "ParseError",
     # Object registry
@@ -89,4 +91,4 @@ __all__ = [
     "extract_declare_paths",
 ]
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
