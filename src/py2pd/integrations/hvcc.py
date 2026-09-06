@@ -28,6 +28,7 @@ Usage::
 from dataclasses import dataclass, field
 from enum import Enum
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -425,7 +426,7 @@ class HeavyPatcher(Patcher):
 
     Parameters
     ----------
-    filename : str, optional
+    filename : str or Path, optional
         Default filename for save().
     layout : LayoutManager, optional
         Custom layout manager.
@@ -435,7 +436,7 @@ class HeavyPatcher(Patcher):
 
     def __init__(
         self,
-        filename: Optional[str] = None,
+        filename: Optional[Union[str, Path]] = None,
         layout: Optional[LayoutManager] = None,
         generators: Sequence[HvccGenerator] | None = None,
     ) -> None:

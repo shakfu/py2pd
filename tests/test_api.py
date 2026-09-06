@@ -1,5 +1,6 @@
 """Tests for py2pd.api module."""
 
+from pathlib import Path
 import warnings
 
 import pytest
@@ -892,7 +893,12 @@ class TestPatcher:
 
     def test_filename_in_constructor(self):
         patch = Patcher("test.pd")
-        assert patch.filename == "test.pd"
+        assert patch.filename == Path("test.pd")
+        assert isinstance(patch.filename, Path)
+
+    def test_filename_from_path_in_constructor(self):
+        patch = Patcher(Path("dir") / "test.pd")
+        assert patch.filename == Path("dir/test.pd")
 
     def test_filename_default_none(self):
         patch = Patcher()
@@ -1710,6 +1716,43 @@ class TestSave:
         content = filepath.read_text()
         assert "#N canvas" in content
         assert "dac~" in content
+
+    def test_save_with_path_argument(self, tmp_path):
+        patch = Patcher()
+        patch.add("osc~ 440")
+        filepath = tmp_path / "test.pd"
+        patch.save(filepath)
+        assert "osc~ 440" in filepath.read_text()
+
+    def test_save_to_dir_uses_basename(self, tmp_path):
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+        patch = Patcher(tmp_path / "ctor.pd")
+        patch.add("dac~")
+        patch.save(to_dir=outdir)
+        assert not (tmp_path / "ctor.pd").exists()
+        assert "dac~" in (outdir / "ctor.pd").read_text()
+
+    def test_save_to_dir_with_filename(self, tmp_path):
+        outdir = tmp_path / "out"
+        outdir.mkdir()
+        patch = Patcher()
+        patch.add("osc~ 440")
+        patch.save("nested/arg.pd", to_dir=str(outdir))
+        assert "osc~ 440" in (outdir / "arg.pd").read_text()
+
+    def test_save_to_dir_creates_missing_dirs(self, tmp_path):
+        outdir = tmp_path / "a" / "b"
+        patch = Patcher("made.pd")
+        patch.add("dac~")
+        patch.save(to_dir=outdir)
+        assert "dac~" in (outdir / "made.pd").read_text()
+
+    def test_save_to_dir_no_filename_raises(self, tmp_path):
+        patch = Patcher()
+        patch.add("osc~ 440")
+        with pytest.raises(ValueError, match="No filename"):
+            patch.save(to_dir=tmp_path)
 
     def test_save_argument_overrides_constructor(self, tmp_path):
         ctor_path = tmp_path / "ctor.pd"

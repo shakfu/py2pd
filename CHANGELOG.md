@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- `Patcher(filename=...)` accepts a `str` or a `Path`, and `self.filename` is stored as a `Path`. Code comparing `patch.filename` to a string needs `Path(...)` or `str(patch.filename)`.
+
+- `Patcher.save()` gained an optional keyword-only `to_dir` for the output directory. Only the base name of the filename is used, so one patch can be written to several directories without rebuilding the path each time. The directory is created if missing.
+
 ### Fixed
 
 - **`pip install py2pd[extras]` failed outright on Windows and Linux ARM.** `cypd` publishes binary wheels only for macOS arm64 and Linux x86_64 and has no source distribution, so resolution errored rather than skipping it. The dependency now carries an environment marker matching the platforms it ships for; elsewhere the extra installs `hvcc` alone, and the libpd integration raises its usual ImportError if used. This also unbroke the Windows CI job, which had started installing the extras.

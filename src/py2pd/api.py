@@ -1,4 +1,5 @@
 from collections import deque
+from pathlib import Path
 import re
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple, Union
 import warnings
@@ -2143,7 +2144,7 @@ class Patcher:
 
     Attributes
     ----------
-    filename : str or None
+    filename : Path or None
         Default filename for save()
     nodes : list of Node
         All nodes in the patch
@@ -2153,7 +2154,7 @@ class Patcher:
         Manages automatic element positioning
     """
 
-    filename: Optional[str]
+    filename: Optional[Path]
     nodes: List[Node]
     connections: List[Connection]
     layout: LayoutManager
@@ -2161,7 +2162,7 @@ class Patcher:
 
     def __init__(
         self,
-        filename: Optional[str] = None,
+        filename: Optional[Union[str, Path]] = None,
         layout: Optional[LayoutManager] = None,
         *,
         validate_links: bool = True,
@@ -2175,8 +2176,9 @@ class Patcher:
 
         Parameters
         ----------
-        filename : str, optional
-            Default filename for save(). Can be overridden in save().
+        filename : str or Path, optional
+            Default filename for save(), stored as a ``Path``. Can be
+            overridden in save().
         layout : LayoutManager, optional
             Custom layout manager. If None, creates a default LayoutManager.
         validate_links : bool, optional
@@ -2193,7 +2195,7 @@ class Patcher:
         font_size : int, optional
             Patch font size written on the ``#N canvas`` line (default: 10).
         """
-        self.filename = filename
+        self.filename = Path(filename) if filename is not None else None
         self.nodes = []
         self.connections = []
         self.layout = layout if layout is not None else LayoutManager()
@@ -3408,23 +3410,36 @@ class Patcher:
         connections_str = "".join(str(c) for c in self.connections)
         return f"{nodes_str}{connections_str}"
 
-    def save(self, filename: Optional[str] = None) -> None:
+    def save(
+        self,
+        filename: Optional[Union[str, Path]] = None,
+        *,
+        to_dir: Optional[Union[str, Path]] = None,
+    ) -> None:
         """Save the patch to a file.
 
         Parameters
         ----------
-        filename : str, optional
+        filename : str or Path, optional
             Path to the output .pd file. If not provided, uses the filename
             from the constructor.
+        to_dir : str or Path, optional
+            Directory to write into, created if missing. Only the base name of
+            *filename* is used, so one patch can be written to several
+            directories.
 
         Raises
         ------
         ValueError
             If no filename is provided and none was set in constructor.
         """
-        fn = filename or self.filename
+        fn = Path(filename) if filename is not None else self.filename
         if fn is None:
             raise ValueError("No filename specified. Provide filename or set in constructor.")
+        if to_dir is not None:
+            d = Path(to_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            fn = d / fn.name
         with open(fn, "w", encoding="utf-8", newline="\n") as f:
             f.write(str(self) + "\n")
 
