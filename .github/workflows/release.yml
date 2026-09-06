@@ -7,9 +7,9 @@ name: Release
 # first run, add a trusted publisher on PyPI for this repository and workflow
 # (project settings -> Publishing), and create a `pypi` environment in the
 # repository settings if you want an approval gate.
-on:
-  release:
-    types: [published]
+on: [workflow_dispatch]
+  # release:
+  #   types: [published]
 
 jobs:
   build:
