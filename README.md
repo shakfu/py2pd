@@ -2,7 +2,7 @@
 
 Roundtrip parsing and generation of [pure-data](https://puredata.info) patches from python.
 
-py2pd is a fork and extensive rewrite of Dylan Burati's [puredata-compiler](https://github.com/dylanburati/puredata-compiler) using some of the ideas from [py2max](https://github.com/shakfu/py2max).
+py2pd is a fork and extensive rewrite of Dylan Burati's [puredata-compiler](https://github.com/dylanburati/puredata-compiler) using some of the ideas from a sible project, [py2max](https://github.com/shakfu/py2max).
 
 ## Features
 
